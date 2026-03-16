@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -14,40 +14,40 @@
     <div>
       <p class="eyebrow">Triple monochromator calibration</p>
       <h1>Raman Calibration PWA</h1>
-      <p class="subtitle">ランプ線を用いた自動キャリブレーションと、複数測定ファイルへの一括適用</p>
+      <p class="subtitle">Automatic lamp-line calibration and batch application to multiple measurement files</p>
     </div>
   </header>
 
   <main class="container">
     <section class="card grid-two">
       <div>
-        <h2>1. 参照データと設定</h2>
+        <h2>1. Reference data & settings</h2>
 
         <label class="field">
-          <span>ランプ参照テーブル</span>
+          <span>Lamp reference table</span>
           <div class="inline">
-            <button id="loadDefaultLampDbBtn" type="button">同梱CSVを読み込む</button>
+            <button id="loadDefaultLampDbBtn" type="button">Load bundled CSV</button>
             <input id="lampDbFileInput" type="file" accept=".csv,text/csv" />
           </div>
-          <small id="lampDbStatus">まだ読み込まれていません</small>
+          <small id="lampDbStatus">Not loaded yet</small>
         </label>
 
         <label class="field">
-          <span>使用ランプ</span>
+          <span>Lamp</span>
           <select id="lampSelect"></select>
         </label>
 
         <label class="field">
-          <span>フィット手法</span>
+          <span>Fit model</span>
           <select id="fitDegreeSelect">
-            <option value="1" selected>1次式（デフォルト）</option>
-            <option value="0">平行移動（0次式）</option>
-            <option value="2">2次式</option>
+            <option value="1" selected>Linear (1st order, default)</option>
+            <option value="0">Offset only (0th order)</option>
+            <option value="2">Quadratic (2nd order)</option>
           </select>
         </label>
 
         <label class="field">
-          <span>レーザー波長</span>
+          <span>Laser wavelength</span>
           <div class="inline">
             <select id="laserSelect"></select>
             <input id="customLaserInput" type="number" step="0.1" min="1" placeholder="custom nm" />
@@ -55,27 +55,27 @@
         </label>
 
         <label class="field">
-          <span>出力形式</span>
+          <span>Output unit</span>
           <select id="outputModeSelect">
-            <option value="raman" selected>ラマンシフト</option>
-            <option value="absolute">絶対波数</option>
-            <option value="wavelength">波長</option>
+            <option value="raman" selected>Raman shift</option>
+            <option value="absolute">Absolute wavenumber</option>
+            <option value="wavelength">Wavelength</option>
           </select>
         </label>
 
         <details class="details">
-          <summary>ピーク検出の詳細設定</summary>
+          <summary>Peak detection settings</summary>
           <div class="details-grid">
             <label class="field">
-              <span>平滑化窓</span>
+              <span>Smoothing window</span>
               <input id="smoothingWindowInput" type="number" min="1" step="1" value="5" />
             </label>
             <label class="field">
-              <span>prominence 窓</span>
+              <span>Prominence window</span>
               <input id="prominenceWindowInput" type="number" min="2" step="1" value="10" />
             </label>
             <label class="field">
-              <span>最小 prominence（空欄で自動）</span>
+              <span>Minimum prominence (auto if empty)</span>
               <input id="minProminenceInput" type="number" step="0.1" placeholder="auto" />
             </label>
           </div>
@@ -83,42 +83,42 @@
       </div>
 
       <div>
-        <h2>2. 入力ファイル</h2>
+        <h2>2. Input files</h2>
 
         <label class="field">
-          <span>キャリブレーション用テキスト</span>
+          <span>Calibration text file</span>
           <input id="calibrationFileInput" type="file" accept=".txt,.dat,.csv,text/plain" />
         </label>
 
         <label class="field">
-          <span>キャリブレーション結果を適用する測定ファイル（複数可）</span>
+          <span>Measurement files to apply calibration (multiple allowed)</span>
           <input id="measurementFilesInput" type="file" accept=".txt,.dat,.csv,text/plain" multiple />
         </label>
 
         <label class="field">
-          <span>出力ファイル名の末尾</span>
+          <span>Output filename suffix</span>
           <input id="suffixInput" type="text" placeholder="-clb_Ne" />
-          <small>デフォルトは <code>-clb_ランプ名</code></small>
+          <small>Default is <code>-clb_lamp-name</code></small>
           <small id="suffixWarning" class="warning"></small>
         </label>
 
         <div class="inline">
-          <button id="runCalibrationBtn" type="button" class="primary">キャリブレーション実行</button>
-          <button id="downloadExampleNoteBtn" type="button">例ファイルの場所を表示</button>
+          <button id="runCalibrationBtn" type="button" class="primary">Run calibration</button>
+          <button id="downloadExampleNoteBtn" type="button">Show example file path</button>
         </div>
 
-        <div id="statusBox" class="status">準備完了</div>
+        <div id="statusBox" class="status">Ready</div>
       </div>
     </section>
 
     <section class="card">
-      <h2>3. プレビュー</h2>
+      <h2>3. Preview</h2>
       <div id="plotContainer" class="plot"></div>
-      <p class="muted">青: スペクトル / 赤: 検出ピーク / 緑: マッチした参照線</p>
+      <p class="muted">Blue: spectrum / Red: detected peaks / Green: matched reference lines</p>
     </section>
 
     <section class="card">
-      <h2>4. キャリブレーション結果</h2>
+      <h2>4. Calibration results</h2>
       <div id="fitSummary" class="summary-grid"></div>
       <div class="table-wrap">
         <table id="matchTable">
@@ -137,7 +137,7 @@
     </section>
 
     <section class="card">
-      <h2>5. 出力</h2>
+      <h2>5. Output</h2>
       <div id="downloadList" class="downloads"></div>
     </section>
   </main>
