@@ -61,7 +61,7 @@ function wireEvents() {
   els.suffixInput.addEventListener("input", validateSuffix);
   els.runCalibrationBtn.addEventListener("click", runCalibrationWorkflow);
   els.downloadExampleNoteBtn.addEventListener("click", () => {
-    setStatus("同梱の例ファイルは `examples/20260205_Ne_example.txt` にあります。GitHubへ置く場合は examples フォルダも一緒にアップロードしてください。");
+    setStatus("Bundled example file: `examples/20260205_Ne_example.txt`. If you upload this app to GitHub, include the `examples` folder as well.");
   });
 }
 
@@ -83,14 +83,14 @@ function populateLaserOptions() {
 async function loadBundledLampDb() {
   const res = await fetch("./data/calibration_lamps_data_for_ThomasLab.csv");
   const text = await res.text();
-  loadLampDbFromText(text, "同梱CSVを読み込みました");
+  loadLampDbFromText(text, "Loaded bundled CSV");
 }
 
 async function onLampDbFileChange(event) {
   const file = event.target.files?.[0];
   if (!file) return;
   const text = await readFileText(file);
-  loadLampDbFromText(text, `ユーザーCSVを読み込みました: ${file.name}`);
+  loadLampDbFromText(text, `Loaded user CSV: ${file.name}`);
 }
 
 function loadLampDbFromText(text, message) {
@@ -110,14 +110,14 @@ function loadLampDbFromText(text, message) {
 
   els.lampDbStatus.textContent = `${message} / ${state.lampDb.length} lines / lamps: ${state.lampNames.join(", ")}`;
   setDefaultSuffix();
-  setStatus("ランプ参照テーブルを準備しました。");
+  setStatus("Lamp reference table is ready.");
 }
 
 function getSelectedLaserNm() {
   if (els.laserSelect.value === "custom") {
     const custom = Number(els.customLaserInput.value);
     if (!Number.isFinite(custom) || custom <= 0) {
-      throw new Error("custom laser wavelength を入力してください。");
+      throw new Error("Please enter a custom laser wavelength.");
     }
     return custom;
   }
@@ -134,7 +134,7 @@ function setDefaultSuffix() {
 function validateSuffix() {
   const suffix = els.suffixInput.value.trim();
   if (!isValidSuffix(suffix)) {
-    els.suffixWarning.textContent = "ファイル名に使えない文字が含まれています: < > : \" / \\ | ? *";
+    els.suffixWarning.textContent = "The suffix contains invalid filename characters: < > : \" / \\ | ? *";
     return false;
   }
   els.suffixWarning.textContent = "";
@@ -149,14 +149,14 @@ function setStatus(message, isError = false) {
 async function runCalibrationWorkflow() {
   try {
     validateBeforeRun();
-    setStatus("キャリブレーションを実行中...");
+    setStatus("Running calibration...");
 
     const calibrationFile = els.calibrationFileInput.files[0];
     const measurementFiles = [...els.measurementFilesInput.files];
 
     const calibrationRows = parseDelimitedTable(await readFileText(calibrationFile));
     if (calibrationRows.length < 3) {
-      throw new Error("キャリブレーションファイルから十分なデータ点を読み込めませんでした。");
+      throw new Error("Could not read enough data points from the calibration file.");
     }
 
     const degree = Number(els.fitDegreeSelect.value);
@@ -209,25 +209,25 @@ async function runCalibrationWorkflow() {
     renderMatchTable(state.lastCalibration);
     renderDownloads(measurementFiles);
 
-    setStatus(`完了: ${lamp} / ${degree}次 / RMS = ${formatNumber(match.rmsError, 4)} cm^-1`);
+    setStatus(`Done: ${lamp} / degree ${degree} / RMS = ${formatNumber(match.rmsError, 4)} cm^-1`);
   } catch (error) {
     console.error(error);
-    setStatus(error.message || "処理に失敗しました。", true);
+    setStatus(error.message || "Processing failed.", true);
   }
 }
 
 function validateBeforeRun() {
-  if (!state.lampDb.length) throw new Error("ランプ参照テーブルを読み込んでください。");
-  if (!els.calibrationFileInput.files?.length) throw new Error("キャリブレーション用テキストを選択してください。");
-  if (!els.measurementFilesInput.files?.length) throw new Error("測定ファイルを1つ以上選択してください。");
-  if (!validateSuffix()) throw new Error("出力ファイル名末尾を修正してください。");
+  if (!state.lampDb.length) throw new Error("Please load a lamp reference table.");
+  if (!els.calibrationFileInput.files?.length) throw new Error("Please select a calibration text file.");
+  if (!els.measurementFilesInput.files?.length) throw new Error("Please select one or more measurement files.");
+  if (!validateSuffix()) throw new Error("Please fix the output filename suffix.");
 }
 
 function renderSummary(cal) {
   const coeffText = cal.coeffs.map((c) => formatNumber(c, 8)).join(", ");
   const metrics = [
     ["Lamp", cal.lamp],
-    ["Model", `${cal.degree}次式`],
+    ["Model", `${cal.degree} order`],
     ["Laser", `${formatNumber(cal.laserNm, 2)} nm`],
     ["Output", outputAxisLabel(cal.outputMode)],
     ["Matched peaks", String(cal.matchedPeaks.length)],
@@ -274,7 +274,7 @@ function renderDownloads(files) {
 
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.textContent = "ダウンロード";
+    btn.textContent = "Download";
     btn.addEventListener("click", async () => {
       const text = await readFileText(file);
       const rows = parseDelimitedTable(text);
