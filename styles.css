@@ -1,0 +1,260 @@
+:root {
+  --bg: #0f172a;
+  --panel: #111827;
+  --panel-2: #0b1222;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --line: #243041;
+  --primary: #60a5fa;
+  --primary-2: #2563eb;
+  --good: #34d399;
+  --warn: #fbbf24;
+  --danger: #f87171;
+  --shadow: 0 18px 48px rgba(0,0,0,0.22);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(37,99,235,0.18), transparent 28%),
+    linear-gradient(180deg, #07101e 0%, #0b1220 100%);
+}
+
+.hero {
+  padding: 2rem 1.25rem 1rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.4rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.hero h1 {
+  margin: 0 0 0.4rem;
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--muted);
+}
+
+.container {
+  width: min(1200px, calc(100% - 2rem));
+  margin: 0 auto 2rem;
+}
+
+.card {
+  background: linear-gradient(180deg, rgba(17,24,39,0.98), rgba(11,18,34,0.98));
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--shadow);
+}
+
+.grid-two {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 920px) {
+  .grid-two { grid-template-columns: 1fr; }
+}
+
+h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
+}
+
+.field span {
+  font-weight: 650;
+}
+
+.inline {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+input, select, button {
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #0a1325;
+  color: var(--text);
+  padding: 0.78rem 0.9rem;
+  font: inherit;
+}
+
+input, select {
+  width: 100%;
+}
+
+input[type="file"] {
+  padding: 0.55rem;
+}
+
+button {
+  cursor: pointer;
+  width: auto;
+}
+
+button:hover {
+  border-color: var(--primary);
+}
+
+button.primary {
+  background: linear-gradient(180deg, var(--primary), var(--primary-2));
+  color: white;
+  border: none;
+  font-weight: 700;
+}
+
+small, .muted {
+  color: var(--muted);
+}
+
+.warning {
+  color: var(--warn);
+  min-height: 1.2em;
+  display: inline-block;
+}
+
+.status {
+  min-height: 3rem;
+  padding: 0.9rem;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.02);
+}
+
+.details {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.8rem 1rem;
+  background: rgba(255,255,255,0.02);
+}
+
+.details summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+}
+
+@media (max-width: 740px) {
+  .details-grid { grid-template-columns: 1fr; }
+}
+
+.plot {
+  min-height: 340px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  overflow: hidden;
+}
+
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+thead {
+  background: rgba(96,165,250,0.12);
+}
+
+th, td {
+  padding: 0.75rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 920px) {
+  .summary-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 540px) {
+  .summary-grid { grid-template-columns: 1fr; }
+}
+
+.metric {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.9rem;
+  background: rgba(255,255,255,0.02);
+}
+
+.metric .label {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.metric .value {
+  margin-top: 0.35rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.downloads {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.download-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.02);
+}
+
+.download-item .meta {
+  min-width: 0;
+}
+
+.download-item .name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

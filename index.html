@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Raman Calibration PWA</title>
+  <meta name="theme-color" content="#0b1020" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">Triple monochromator calibration</p>
+      <h1>Raman Calibration PWA</h1>
+      <p class="subtitle">ランプ線を用いた自動キャリブレーションと、複数測定ファイルへの一括適用</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card grid-two">
+      <div>
+        <h2>1. 参照データと設定</h2>
+
+        <label class="field">
+          <span>ランプ参照テーブル</span>
+          <div class="inline">
+            <button id="loadDefaultLampDbBtn" type="button">同梱CSVを読み込む</button>
+            <input id="lampDbFileInput" type="file" accept=".csv,text/csv" />
+          </div>
+          <small id="lampDbStatus">まだ読み込まれていません</small>
+        </label>
+
+        <label class="field">
+          <span>使用ランプ</span>
+          <select id="lampSelect"></select>
+        </label>
+
+        <label class="field">
+          <span>フィット手法</span>
+          <select id="fitDegreeSelect">
+            <option value="1" selected>1次式（デフォルト）</option>
+            <option value="0">平行移動（0次式）</option>
+            <option value="2">2次式</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>レーザー波長</span>
+          <div class="inline">
+            <select id="laserSelect"></select>
+            <input id="customLaserInput" type="number" step="0.1" min="1" placeholder="custom nm" />
+          </div>
+        </label>
+
+        <label class="field">
+          <span>出力形式</span>
+          <select id="outputModeSelect">
+            <option value="raman" selected>ラマンシフト</option>
+            <option value="absolute">絶対波数</option>
+            <option value="wavelength">波長</option>
+          </select>
+        </label>
+
+        <details class="details">
+          <summary>ピーク検出の詳細設定</summary>
+          <div class="details-grid">
+            <label class="field">
+              <span>平滑化窓</span>
+              <input id="smoothingWindowInput" type="number" min="1" step="1" value="5" />
+            </label>
+            <label class="field">
+              <span>prominence 窓</span>
+              <input id="prominenceWindowInput" type="number" min="2" step="1" value="10" />
+            </label>
+            <label class="field">
+              <span>最小 prominence（空欄で自動）</span>
+              <input id="minProminenceInput" type="number" step="0.1" placeholder="auto" />
+            </label>
+          </div>
+        </details>
+      </div>
+
+      <div>
+        <h2>2. 入力ファイル</h2>
+
+        <label class="field">
+          <span>キャリブレーション用テキスト</span>
+          <input id="calibrationFileInput" type="file" accept=".txt,.dat,.csv,text/plain" />
+        </label>
+
+        <label class="field">
+          <span>キャリブレーション結果を適用する測定ファイル（複数可）</span>
+          <input id="measurementFilesInput" type="file" accept=".txt,.dat,.csv,text/plain" multiple />
+        </label>
+
+        <label class="field">
+          <span>出力ファイル名の末尾</span>
+          <input id="suffixInput" type="text" placeholder="-clb_Ne" />
+          <small>デフォルトは <code>-clb_ランプ名</code></small>
+          <small id="suffixWarning" class="warning"></small>
+        </label>
+
+        <div class="inline">
+          <button id="runCalibrationBtn" type="button" class="primary">キャリブレーション実行</button>
+          <button id="downloadExampleNoteBtn" type="button">例ファイルの場所を表示</button>
+        </div>
+
+        <div id="statusBox" class="status">準備完了</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3. プレビュー</h2>
+      <div id="plotContainer" class="plot"></div>
+      <p class="muted">青: スペクトル / 赤: 検出ピーク / 緑: マッチした参照線</p>
+    </section>
+
+    <section class="card">
+      <h2>4. キャリブレーション結果</h2>
+      <div id="fitSummary" class="summary-grid"></div>
+      <div class="table-wrap">
+        <table id="matchTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Measured x</th>
+              <th>Reference abs. wavenumber</th>
+              <th>Reference wavelength (nm)</th>
+              <th>Residual</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>5. 出力</h2>
+      <div id="downloadList" class="downloads"></div>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
