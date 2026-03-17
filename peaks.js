@@ -46,12 +46,13 @@ export function detectPeaks(rows, options = {}) {
 }
 
 function refinePeakCentersQuadratic(rows, peaks, halfWindow = 3) {
+  const hw = Math.max(1, Math.floor(halfWindow));
   const x = rows.map((r) => r.x);
   const y = rows.map((r) => r.y);
 
   return peaks.map((peak) => {
-    const start = Math.max(0, peak.index - halfWindow);
-    const end = Math.min(rows.length - 1, peak.index + halfWindow);
+    const start = Math.max(0, peak.index - hw);
+    const end = Math.min(rows.length - 1, peak.index + hw);
     const xs = [];
     const ys = [];
 

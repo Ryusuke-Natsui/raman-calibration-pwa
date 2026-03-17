@@ -58,6 +58,7 @@ const els = {
   smoothingWindowInput: document.getElementById("smoothingWindowInput"),
   prominenceWindowInput: document.getElementById("prominenceWindowInput"),
   minProminenceInput: document.getElementById("minProminenceInput"),
+  refineHalfWindowInput: document.getElementById("refineHalfWindowInput"),
   calibrationFileInput: document.getElementById("calibrationFileInput"),
   measurementFilesInput: document.getElementById("measurementFilesInput"),
   suffixInput: document.getElementById("suffixInput"),
@@ -107,6 +108,7 @@ function wireEvents() {
   els.smoothingWindowInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run peak detection again."));
   els.prominenceWindowInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run peak detection again."));
   els.minProminenceInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run peak detection again."));
+  els.refineHalfWindowInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run peak detection again."));
   els.calibrationFileInput.addEventListener("change", () => {
     updateFileStatus(els.calibrationFileInput, els.calibrationFileStatus);
     invalidatePeakDetection("Calibration file changed. Run peak detection again.");
@@ -320,6 +322,7 @@ async function detectPeaksWorkflow() {
       smoothingWindow: Number(els.smoothingWindowInput.value) || 5,
       prominenceWindow: Number(els.prominenceWindowInput.value) || 10,
       minProminence: els.minProminenceInput.value === "" ? undefined : Number(els.minProminenceInput.value),
+      refineHalfWindow: Math.max(1, Math.floor(Number(els.refineHalfWindowInput.value) || 3)),
     };
 
     const calibrationRowsForFit = convertRowsToAbsInput(calibrationRows, inputAxisMode, laserNm);
