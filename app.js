@@ -94,8 +94,6 @@ function wireEvents() {
   els.measurementFilesInput.addEventListener("change", () => updateFileStatus(els.measurementFilesInput, els.measurementFilesStatus));
 }
 
-
-
 function t(key, ...args) {
   const table = I18N[currentLang] || I18N.en;
   const val = table[key] ?? I18N.en[key];
