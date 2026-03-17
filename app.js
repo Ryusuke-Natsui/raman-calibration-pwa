@@ -31,6 +31,7 @@ const state = {
 
 const els = {
   lampDbStatus: document.getElementById("lampDbStatus"),
+  reloadLampDbBtn: document.getElementById("reloadLampDbBtn"),
   lampSelect: document.getElementById("lampSelect"),
   fitDegreeSelect: document.getElementById("fitDegreeSelect"),
   laserSelect: document.getElementById("laserSelect"),
@@ -75,6 +76,7 @@ async function init() {
 }
 
 function wireEvents() {
+  els.reloadLampDbBtn.addEventListener("click", loadBundledLampDb);
   els.lampSelect.addEventListener("change", () => {
     setDefaultSuffix();
     invalidatePeakDetection("Settings changed. Run peak detection again.");
@@ -169,12 +171,30 @@ function populateLaserOptions() {
 }
 
 async function loadBundledLampDb() {
-  const res = await fetch("./data/calibration_lamps_data_for_ThomasLab.csv");
-  const text = await res.text();
-  loadLampDbFromText(text, "Using bundled CSV");
-  invalidatePeakDetection();
-}
+  try {
+    els.reloadLampDbBtn.disabled = true;
+    els.lampDbStatus.textContent = "Loading bundled CSV...";
 
+    const res = await fetch("./data/calibration_lamps_data_for_ThomasLab.csv", { cache: "no-store" });
+    if (!res.ok) {
+      throw new Error(`Failed to load bundled CSV (HTTP ${res.status}).`);
+    }
+
+    const text = await res.text();
+    loadLampDbFromText(text, "Using bundled CSV");
+    invalidatePeakDetection();
+  } catch (error) {
+    console.error(error);
+    state.lampDb = [];
+    state.lampNames = [];
+    els.lampSelect.innerHTML = "";
+    els.lampDbStatus.textContent = "Failed to load bundled CSV. Click 'Reload bundled CSV' to retry.";
+    setStatus(error.message || "Failed to load bundled CSV.", true);
+    invalidatePeakDetection();
+  } finally {
+    els.reloadLampDbBtn.disabled = false;
+  }
+}
 
 function loadLampDbFromText(text, message) {
   state.lampDb = parseLampCsv(text);
