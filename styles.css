@@ -166,6 +166,15 @@ button:hover {
   border-color: var(--primary);
 }
 
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button:disabled:hover {
+  border-color: var(--line);
+}
+
 button.primary {
   background: linear-gradient(180deg, var(--primary), var(--primary-2));
   color: white;
