@@ -205,7 +205,7 @@ function populateLaserOptions() {
     const opt = document.createElement("option");
     opt.value = String(nm);
     opt.textContent = `${nm} nm`;
-    if (nm === 514) opt.selected = true;
+    if (String(nm) === "514.55") opt.selected = true;
     els.laserSelect.appendChild(opt);
   }
   const custom = document.createElement("option");
