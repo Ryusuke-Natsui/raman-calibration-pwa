@@ -11,6 +11,13 @@
 </head>
 <body>
   <header class="hero">
+    <div class="lang-switch">
+      <label for="languageSelect" data-i18n="language">Language</label>
+      <select id="languageSelect" aria-label="Language selector">
+        <option value="en">English</option>
+        <option value="ja">日本語</option>
+      </select>
+    </div>
     <div>
       <p class="eyebrow">Triple monochromator calibration</p>
       <h1>Raman Calibration PWA</h1>
@@ -27,7 +34,11 @@
           <span>Lamp reference table</span>
           <div class="inline">
             <button id="loadDefaultLampDbBtn" type="button">Load bundled CSV</button>
-            <input id="lampDbFileInput" type="file" accept=".csv,text/csv" />
+            <div class="file-picker">
+              <input id="lampDbFileInput" type="file" accept=".csv,text/csv" />
+              <label for="lampDbFileInput" class="file-picker-btn" data-i18n="selectFile">Select File</label>
+              <span id="lampDbFileStatus" class="muted" data-i18n="noFileSelected">No file selected</span>
+            </div>
           </div>
           <small id="lampDbStatus">Not loaded yet</small>
         </label>
@@ -55,6 +66,14 @@
         </label>
 
         <label class="field">
+          <span>Input x-axis unit</span>
+          <select id="inputAxisModeSelect">
+            <option value="absolute" selected>Absolute wavenumber (cm^-1)</option>
+            <option value="raman">Raman shift (cm^-1, selected laser)</option>
+          </select>
+        </label>
+
+        <label class="field">
           <span>Output unit</span>
           <select id="outputModeSelect">
             <option value="raman" selected>Raman shift</option>
@@ -78,6 +97,10 @@
               <span>Minimum prominence (auto if empty)</span>
               <input id="minProminenceInput" type="number" step="0.1" placeholder="auto" />
             </label>
+            <label class="field">
+              <span>Peak-center fit half window (±points)</span>
+              <input id="refineHalfWindowInput" type="number" min="1" step="1" value="3" />
+            </label>
           </div>
         </details>
       </div>
@@ -87,12 +110,20 @@
 
         <label class="field">
           <span>Calibration text file</span>
-          <input id="calibrationFileInput" type="file" accept=".txt,.dat,.csv,text/plain" />
+          <div class="file-picker">
+            <input id="calibrationFileInput" type="file" accept=".txt,.dat,.csv,text/plain" />
+            <label for="calibrationFileInput" class="file-picker-btn" data-i18n="selectFile">Select File</label>
+            <span id="calibrationFileStatus" class="muted" data-i18n="noFileSelected">No file selected</span>
+          </div>
         </label>
 
         <label class="field">
           <span>Measurement files to apply calibration (multiple allowed)</span>
-          <input id="measurementFilesInput" type="file" accept=".txt,.dat,.csv,text/plain" multiple />
+          <div class="file-picker">
+            <input id="measurementFilesInput" type="file" accept=".txt,.dat,.csv,text/plain" multiple />
+            <label for="measurementFilesInput" class="file-picker-btn" data-i18n="selectFile">Select File</label>
+            <span id="measurementFilesStatus" class="muted" data-i18n="noFileSelected">No file selected</span>
+          </div>
         </label>
 
         <label class="field">
@@ -103,7 +134,8 @@
         </label>
 
         <div class="inline">
-          <button id="runCalibrationBtn" type="button" class="primary">Run calibration</button>
+          <button id="detectPeaksBtn" type="button">Detect peaks</button>
+          <button id="runCalibrationBtn" type="button" class="primary" disabled>Run calibration</button>
           <button id="downloadExampleNoteBtn" type="button">Show example file path</button>
         </div>
 
@@ -112,9 +144,27 @@
     </section>
 
     <section class="card">
-      <h2>3. Preview</h2>
+      <div class="inline preview-tools">
+        <h2>3. Preview</h2>
+        <label class="preview-axis-control">
+          <span>Spectrum</span>
+          <select id="previewSpectrumModeSelect">
+            <option value="raw" selected>Before calibration</option>
+            <option value="calibrated" disabled>After calibration</option>
+          </select>
+        </label>
+        <label class="preview-axis-control">
+          <span>X-axis</span>
+          <select id="previewAxisModeSelect">
+            <option value="absolute" selected>Absolute wavenumber</option>
+            <option value="raman">Raman shift</option>
+            <option value="wavelength">Wavelength</option>
+          </select>
+        </label>
+        <button id="resetZoomBtn" type="button" disabled>Reset zoom</button>
+      </div>
       <div id="plotContainer" class="plot"></div>
-      <p class="muted">Blue: spectrum / Red: detected peaks / Green: matched reference lines</p>
+      <p class="muted">Blue: spectrum / Red: detected peaks / Green: matched reference lines (drag on plot to zoom x-range)</p>
     </section>
 
     <section class="card">
