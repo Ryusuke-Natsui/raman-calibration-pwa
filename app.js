@@ -1,6 +1,6 @@
 import { detectPeaks } from "./peaks.js";
 import { autoMatchPeaks, applyCalibration, evaluatePolynomial } from "./calibration.js";
-import { LASER_OPTIONS_NM, convertAbsAxis, outputAxisLabel } from "./units.js";
+import { LASER_OPTIONS_NM, convertAbsAxis, laserAbsWavenumberFromNm, outputAxisLabel } from "./units.js";
 import {
   parseDelimitedTable,
   parseLampCsv,
@@ -19,6 +19,23 @@ const state = {
   lastCalibration: null,
 };
 
+const I18N = {
+  en: {
+    language: "Language",
+    selectFile: "Select File",
+    noFileSelected: "No file selected",
+    filesSelected: (count) => `${count} files selected`,
+  },
+  ja: {
+    language: "言語",
+    selectFile: "ファイルを選択",
+    noFileSelected: "ファイルが選択されていません",
+    filesSelected: (count) => `${count} 件のファイルを選択中`,
+  },
+};
+
+let currentLang = "en";
+
 const els = {
   lampDbFileInput: document.getElementById("lampDbFileInput"),
   loadDefaultLampDbBtn: document.getElementById("loadDefaultLampDbBtn"),
@@ -27,6 +44,7 @@ const els = {
   fitDegreeSelect: document.getElementById("fitDegreeSelect"),
   laserSelect: document.getElementById("laserSelect"),
   customLaserInput: document.getElementById("customLaserInput"),
+  inputAxisModeSelect: document.getElementById("inputAxisModeSelect"),
   outputModeSelect: document.getElementById("outputModeSelect"),
   smoothingWindowInput: document.getElementById("smoothingWindowInput"),
   prominenceWindowInput: document.getElementById("prominenceWindowInput"),
@@ -42,6 +60,10 @@ const els = {
   fitSummary: document.getElementById("fitSummary"),
   matchTableBody: document.querySelector("#matchTable tbody"),
   downloadList: document.getElementById("downloadList"),
+  languageSelect: document.getElementById("languageSelect"),
+  lampDbFileStatus: document.getElementById("lampDbFileStatus"),
+  calibrationFileStatus: document.getElementById("calibrationFileStatus"),
+  measurementFilesStatus: document.getElementById("measurementFilesStatus"),
 };
 
 init();
@@ -49,6 +71,7 @@ init();
 async function init() {
   populateLaserOptions();
   wireEvents();
+  applyLanguage("en");
   registerServiceWorker();
   await loadBundledLampDb();
   setDefaultSuffix();
@@ -63,6 +86,67 @@ function wireEvents() {
   els.downloadExampleNoteBtn.addEventListener("click", () => {
     setStatus("Bundled example file: `examples/20260205_Ne_example.txt`. If you upload this app to GitHub, include the `examples` folder as well.");
   });
+  els.languageSelect.addEventListener("change", (event) => {
+    applyLanguage(event.target.value);
+  });
+  els.lampDbFileInput.addEventListener("change", () => updateFileStatus(els.lampDbFileInput, els.lampDbFileStatus));
+  els.calibrationFileInput.addEventListener("change", () => updateFileStatus(els.calibrationFileInput, els.calibrationFileStatus));
+  els.measurementFilesInput.addEventListener("change", () => updateFileStatus(els.measurementFilesInput, els.measurementFilesStatus));
+}
+
+
+
+function t(key, ...args) {
+  const table = I18N[currentLang] || I18N.en;
+  const val = table[key] ?? I18N.en[key];
+  return typeof val === "function" ? val(...args) : val;
+}
+
+function applyLanguage(lang) {
+  currentLang = I18N[lang] ? lang : "en";
+  document.documentElement.lang = currentLang;
+  els.languageSelect.value = currentLang;
+
+  document.querySelectorAll("[data-i18n]").forEach((node) => {
+    const key = node.dataset.i18n;
+    node.textContent = t(key);
+  });
+
+  updateFileStatus(els.lampDbFileInput, els.lampDbFileStatus);
+  updateFileStatus(els.calibrationFileInput, els.calibrationFileStatus);
+  updateFileStatus(els.measurementFilesInput, els.measurementFilesStatus);
+}
+
+function updateFileStatus(inputEl, statusEl) {
+  const count = inputEl.files?.length || 0;
+  if (count === 0) {
+    statusEl.textContent = t("noFileSelected");
+    return;
+  }
+  if (count === 1) {
+    statusEl.textContent = inputEl.files[0].name;
+    return;
+  }
+  statusEl.textContent = t("filesSelected", count);
+}
+
+function convertRowsToAbsInput(rows, inputAxisMode, laserNm) {
+  return rows.map((row) => ({
+    ...row,
+    x: convertInputXToAbs(row.x, inputAxisMode, laserNm),
+  }));
+}
+
+function convertInputXToAbs(x, inputAxisMode, laserNm) {
+  if (inputAxisMode === "raman") {
+    return laserAbsWavenumberFromNm(laserNm) - x;
+  }
+  return x;
+}
+
+function inputAxisLabel(inputAxisMode) {
+  if (inputAxisMode === "raman") return "Raman shift (cm^-1)";
+  return "Absolute wavenumber (cm^-1)";
 }
 
 function populateLaserOptions() {
@@ -162,6 +246,7 @@ async function runCalibrationWorkflow() {
     const degree = Number(els.fitDegreeSelect.value);
     const lamp = els.lampSelect.value;
     const laserNm = getSelectedLaserNm();
+    const inputAxisMode = els.inputAxisModeSelect.value;
     const outputMode = els.outputModeSelect.value;
 
     const detectOptions = {
@@ -170,8 +255,10 @@ async function runCalibrationWorkflow() {
       minProminence: els.minProminenceInput.value === "" ? undefined : Number(els.minProminenceInput.value),
     };
 
-    const peakResult = detectPeaks(calibrationRows, detectOptions);
-    const xValues = calibrationRows.map((r) => r.x);
+    const calibrationRowsForFit = convertRowsToAbsInput(calibrationRows, inputAxisMode, laserNm);
+
+    const peakResult = detectPeaks(calibrationRowsForFit, detectOptions);
+    const xValues = calibrationRowsForFit.map((r) => r.x);
     const xMin = Math.min(...xValues);
     const xMax = Math.max(...xValues);
 
@@ -188,18 +275,19 @@ async function runCalibrationWorkflow() {
       degree,
       lamp,
       laserNm,
+      inputAxisMode,
       outputMode,
       coeffs: match.coeffs,
       rmsError: match.rmsError,
       matchedPeaks: match.measuredPeaks,
       referenceLines: match.referenceLines,
       residuals: match.residuals,
-      calibrationRows,
+      calibrationRows: calibrationRowsForFit,
       peakResult,
     };
 
     renderPlot({
-      rows: calibrationRows,
+      rows: calibrationRowsForFit,
       peakResult,
       matchedPeaks: match.measuredPeaks,
       matchedLines: match.referenceLines,
@@ -229,6 +317,7 @@ function renderSummary(cal) {
     ["Lamp", cal.lamp],
     ["Model", `${cal.degree} order`],
     ["Laser", `${formatNumber(cal.laserNm, 2)} nm`],
+    ["Input axis", inputAxisLabel(cal.inputAxisMode)],
     ["Output", outputAxisLabel(cal.outputMode)],
     ["Matched peaks", String(cal.matchedPeaks.length)],
     ["RMS", `${formatNumber(cal.rmsError, 5)} cm^-1`],
@@ -278,7 +367,8 @@ function renderDownloads(files) {
     btn.addEventListener("click", async () => {
       const text = await readFileText(file);
       const rows = parseDelimitedTable(text);
-      const absCalibrated = applyCalibration(state.lastCalibration.coeffs, rows.map((r) => r.x));
+      const inputX = rows.map((r) => convertInputXToAbs(r.x, state.lastCalibration.inputAxisMode, state.lastCalibration.laserNm));
+      const absCalibrated = applyCalibration(state.lastCalibration.coeffs, inputX);
       const converted = convertAbsAxis(absCalibrated, state.lastCalibration.outputMode, state.lastCalibration.laserNm);
       const out = converted.map((x, i) => `${x}\t${rows[i].y}`).join("\n") + "\n";
 
