@@ -1,4 +1,4 @@
-export const LASER_OPTIONS_NM = [325, 442, 458, 488, 514, 532, 561, 633, 785, 1064];
+export const LASER_OPTIONS_NM = ["325", "442", "458", "488.00", "514.55", "532.08", "561.32", "632.93", "785", "1064"];
 
 export function laserAbsWavenumberFromNm(laserNm) {
   return 1e7 / Number(laserNm);
