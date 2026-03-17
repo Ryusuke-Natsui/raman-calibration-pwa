@@ -223,6 +223,26 @@ small, .muted {
   .details-grid { grid-template-columns: 1fr; }
 }
 
+
+.preview-tools {
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.preview-tools h2 {
+  margin: 0;
+}
+
+.preview-axis-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.preview-axis-control select {
+  width: auto;
+  min-width: 190px;
+}
 .plot {
   min-height: 340px;
   border: 1px solid var(--line);

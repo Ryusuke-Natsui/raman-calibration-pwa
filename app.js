@@ -1,6 +1,13 @@
 import { detectPeaks } from "./peaks.js";
 import { autoMatchPeaks, applyCalibration, evaluatePolynomial } from "./calibration.js";
-import { LASER_OPTIONS_NM, convertAbsAxis, laserAbsWavenumberFromNm, outputAxisLabel } from "./units.js";
+import {
+  LASER_OPTIONS_NM,
+  absWavenumberToRamanShiftCm,
+  absWavenumberToWavelengthNm,
+  convertAbsAxis,
+  laserAbsWavenumberFromNm,
+  outputAxisLabel,
+} from "./units.js";
 import {
   parseDelimitedTable,
   parseLampCsv,
@@ -18,6 +25,7 @@ const state = {
   lampNames: [],
   lastCalibration: null,
   peakDetection: null,
+  preview: null,
 };
 
 const I18N = {
@@ -66,6 +74,9 @@ const els = {
   lampDbFileStatus: document.getElementById("lampDbFileStatus"),
   calibrationFileStatus: document.getElementById("calibrationFileStatus"),
   measurementFilesStatus: document.getElementById("measurementFilesStatus"),
+  previewSpectrumModeSelect: document.getElementById("previewSpectrumModeSelect"),
+  previewAxisModeSelect: document.getElementById("previewAxisModeSelect"),
+  resetZoomBtn: document.getElementById("resetZoomBtn"),
 };
 
 init();
@@ -78,6 +89,8 @@ async function init() {
   await loadBundledLampDb();
   setDefaultSuffix();
   updateCalibrationButtonState();
+  updateSpectrumModeControl();
+  updateZoomButtonState();
 }
 
 function wireEvents() {
@@ -109,6 +122,26 @@ function wireEvents() {
   });
   els.lampDbFileInput.addEventListener("change", () => updateFileStatus(els.lampDbFileInput, els.lampDbFileStatus));
   els.measurementFilesInput.addEventListener("change", () => updateFileStatus(els.measurementFilesInput, els.measurementFilesStatus));
+  els.previewSpectrumModeSelect.addEventListener("change", () => {
+    if (!state.preview) return;
+    state.preview.zoomRange = null;
+    renderPreview();
+    updateZoomButtonState();
+  });
+  els.previewAxisModeSelect.addEventListener("change", () => {
+    if (state.preview) {
+      state.preview.zoomRange = null;
+      renderPreview();
+      setStatus("Preview x-axis changed.");
+    }
+    updateZoomButtonState();
+  });
+  els.resetZoomBtn.addEventListener("click", () => {
+    if (!state.preview) return;
+    state.preview.zoomRange = null;
+    renderPreview();
+    updateZoomButtonState();
+  });
 }
 
 function t(key, ...args) {
@@ -255,9 +288,14 @@ function invalidatePeakDetection(statusMessage = "") {
   state.peakDetection = null;
   updateCalibrationButtonState();
   state.lastCalibration = null;
+  state.preview = null;
+  els.previewSpectrumModeSelect.value = "raw";
+  els.plotContainer.innerHTML = "";
   els.fitSummary.innerHTML = "";
   els.matchTableBody.innerHTML = "";
   els.downloadList.innerHTML = "";
+  updateSpectrumModeControl();
+  updateZoomButtonState();
   if (statusMessage) setStatus(statusMessage);
 }
 
@@ -300,14 +338,19 @@ async function detectPeaksWorkflow() {
       xMax: Math.max(...xValues),
     };
 
-    renderPlot({
+    state.preview = {
       rows: calibrationRowsForFit,
       peakResult,
       matchedPeaks: [],
       matchedLines: [],
-    });
+      laserNm,
+      calibrationCoeffs: null,
+      zoomRange: null,
+    };
+    renderPreview();
 
     updateCalibrationButtonState();
+    updateSpectrumModeControl();
     setStatus(`Peak detection finished: ${peakResult.peaks.length} peaks. Now run calibration.`);
   } catch (error) {
     console.error(error);
@@ -347,12 +390,17 @@ async function runCalibrationWorkflow() {
       peakResult,
     };
 
-    renderPlot({
+    state.preview = {
       rows: calibrationRowsForFit,
       peakResult,
       matchedPeaks: match.measuredPeaks,
       matchedLines: match.referenceLines,
-    });
+      laserNm,
+      calibrationCoeffs: match.coeffs,
+      zoomRange: state.preview?.zoomRange || null,
+    };
+    renderPreview();
+    updateSpectrumModeControl();
 
     renderSummary(state.lastCalibration);
     renderMatchTable(state.lastCalibration);
@@ -447,56 +495,195 @@ function renderDownloads(files) {
   }
 }
 
-function renderPlot({ rows, peakResult, matchedPeaks = [], matchedLines = [] }) {
+function renderPreview() {
+  if (!state.preview) return;
+  renderPlot(state.preview);
+}
+
+function updateZoomButtonState() {
+  els.resetZoomBtn.disabled = !state.preview?.zoomRange;
+}
+
+function updateSpectrumModeControl() {
+  const hasCalibrated = Boolean(state.preview?.calibrationCoeffs);
+  const calibratedOption = els.previewSpectrumModeSelect.querySelector('option[value="calibrated"]');
+  if (calibratedOption) calibratedOption.disabled = !hasCalibrated;
+  if (!hasCalibrated && els.previewSpectrumModeSelect.value === "calibrated") {
+    els.previewSpectrumModeSelect.value = "raw";
+  }
+}
+
+function convertAbsForPreview(absX, mode, laserNm) {
+  if (mode === "raman") return absWavenumberToRamanShiftCm(absX, laserNm);
+  if (mode === "wavelength") return absWavenumberToWavelengthNm(absX);
+  return absX;
+}
+
+function previewAxisLabel(mode) {
+  if (mode === "raman") return "Raman shift (cm^-1)";
+  if (mode === "wavelength") return "Wavelength (nm)";
+  return "Absolute wavenumber (cm^-1)";
+}
+
+function niceTicks(min, max, targetCount = 7) {
+  const span = max - min;
+  if (!Number.isFinite(span) || span <= 0) return [min];
+  const rough = span / Math.max(2, targetCount);
+  const mag = 10 ** Math.floor(Math.log10(rough));
+  const residual = rough / mag;
+  const niceResidual = residual >= 5 ? 5 : residual >= 2 ? 2 : 1;
+  const step = niceResidual * mag;
+  const start = Math.ceil(min / step) * step;
+  const ticks = [];
+  for (let v = start; v <= max + step * 0.5; v += step) {
+    ticks.push(Number(v.toFixed(8)));
+  }
+  return ticks.length ? ticks : [min, max];
+}
+
+function renderPlot({ rows, peakResult, matchedPeaks = [], matchedLines = [], laserNm, calibrationCoeffs = null, zoomRange = null }) {
   const width = 1100;
   const height = 340;
-  const margin = { top: 20, right: 20, bottom: 36, left: 62 };
+  const margin = { top: 20, right: 20, bottom: 42, left: 62 };
+  const previewMode = els.previewAxisModeSelect.value;
+  const spectrumMode = els.previewSpectrumModeSelect.value;
+  const xTransformer = spectrumMode === "calibrated" && calibrationCoeffs
+    ? (x) => evaluatePolynomial(calibrationCoeffs, x)
+    : (x) => x;
 
-  const x = rows.map((r) => r.x);
-  const y = rows.map((r) => r.y);
-  const xMin = Math.min(...x);
-  const xMax = Math.max(...x);
-  const yMin = Math.min(...y);
-  const yMax = Math.max(...y);
+  const points = rows.map((r) => ({ ...r, xDisplay: convertAbsForPreview(xTransformer(r.x), previewMode, laserNm) }));
+  const inZoom = zoomRange
+    ? points.filter((p) => p.xDisplay >= zoomRange[0] && p.xDisplay <= zoomRange[1])
+    : points;
+  if (!inZoom.length) {
+    els.plotContainer.innerHTML = "";
+    return;
+  }
+
+  const xVals = inZoom.map((p) => p.xDisplay);
+  const yVals = inZoom.map((p) => p.y);
+  const xMin = Math.min(...xVals);
+  const xMax = Math.max(...xVals);
+  const yMin = Math.min(...yVals);
+  const yMax = Math.max(...yVals);
 
   const sx = (v) => margin.left + ((v - xMin) / (xMax - xMin || 1)) * (width - margin.left - margin.right);
   const sy = (v) => height - margin.bottom - ((v - yMin) / (yMax - yMin || 1)) * (height - margin.top - margin.bottom);
 
-  const path = rows.map((r, i) => `${i === 0 ? "M" : "L"} ${sx(r.x).toFixed(2)} ${sy(r.y).toFixed(2)}`).join(" ");
+  const path = inZoom.map((r, i) => `${i === 0 ? "M" : "L"} ${sx(r.xDisplay).toFixed(2)} ${sy(r.y).toFixed(2)}`).join(" ");
 
-  const peakDots = peakResult.peaks.slice(0, 18).map((p) =>
-    `<circle cx="${sx(p.x)}" cy="${sy(p.y)}" r="3.5" fill="#f87171"><title>x=${formatNumber(p.x, 3)}, prom=${formatNumber(p.prominence, 2)}</title></circle>`
-  ).join("");
+  const peakDots = peakResult.peaks.map((p) => ({ ...p, xDisplay: convertAbsForPreview(xTransformer(p.x), previewMode, laserNm) }))
+    .filter((p) => p.xDisplay >= xMin && p.xDisplay <= xMax)
+    .slice(0, 60)
+    .map((p) => `<circle cx="${sx(p.xDisplay)}" cy="${sy(p.y)}" r="3.5" fill="#f87171"><title>x=${formatNumber(p.xDisplay, 3)}, prom=${formatNumber(p.prominence, 2)}</title></circle>`)
+    .join("");
 
-  const matchedPeakDots = matchedPeaks.map((p) =>
-    `<circle cx="${sx(p.x)}" cy="${sy(p.y)}" r="5.5" fill="#f59e0b" stroke="#fff" stroke-width="1"><title>matched peak ${formatNumber(p.x, 3)}</title></circle>`
-  ).join("");
+  const matchedPeakDots = matchedPeaks.map((p) => ({ ...p, xDisplay: convertAbsForPreview(xTransformer(p.x), previewMode, laserNm) }))
+    .filter((p) => p.xDisplay >= xMin && p.xDisplay <= xMax)
+    .map((p) => `<circle cx="${sx(p.xDisplay)}" cy="${sy(p.y)}" r="5.5" fill="#f59e0b" stroke="#fff" stroke-width="1"><title>matched peak ${formatNumber(p.xDisplay, 3)}</title></circle>`)
+    .join("");
 
-  const lineMarkers = matchedLines.map((line) => {
-    const cx = sx(line.absWavenumber);
-    return `
-      <line x1="${cx}" y1="${margin.top}" x2="${cx}" y2="${height - margin.bottom}" stroke="#34d399" stroke-width="1.4" stroke-dasharray="4 4" />
-      <text x="${cx + 4}" y="${margin.top + 16}" fill="#34d399" font-size="11">${formatNumber(line.absWavenumber, 1)}</text>
-    `;
-  }).join("");
+  const lineMarkers = matchedLines.map((line) => convertAbsForPreview(line.absWavenumber, previewMode, laserNm))
+    .filter((xv) => xv >= xMin && xv <= xMax)
+    .map((xv) => {
+      const cx = sx(xv);
+      return `
+        <line x1="${cx}" y1="${margin.top}" x2="${cx}" y2="${height - margin.bottom}" stroke="#34d399" stroke-width="1.4" stroke-dasharray="4 4" />
+        <text x="${cx + 4}" y="${margin.top + 16}" fill="#34d399" font-size="11">${formatNumber(xv, 1)}</text>
+      `;
+    }).join("");
+
+  const tickValues = niceTicks(xMin, xMax, 8);
+  const xTicks = tickValues.map((tv) => `
+    <line x1="${sx(tv)}" y1="${height - margin.bottom}" x2="${sx(tv)}" y2="${height - margin.bottom + 6}" stroke="#64748b" />
+    <text x="${sx(tv)}" y="${height - margin.bottom + 20}" text-anchor="middle" fill="#94a3b8" font-size="11">${formatNumber(tv, 1)}</text>
+  `).join("");
 
   const axis = `
     <line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" stroke="#64748b" />
     <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${height - margin.bottom}" stroke="#64748b" />
-    <text x="${width / 2}" y="${height - 8}" text-anchor="middle" fill="#94a3b8" font-size="12">Measured x-axis</text>
+    ${xTicks}
+    <text x="${width / 2}" y="${height - 4}" text-anchor="middle" fill="#94a3b8" font-size="12">${escapeHtml(previewAxisLabel(previewMode))} (${spectrumMode === "calibrated" ? "after calibration" : "before calibration"})</text>
     <text x="18" y="${height / 2}" text-anchor="middle" transform="rotate(-90 18 ${height / 2})" fill="#94a3b8" font-size="12">Intensity</text>
   `;
 
   els.plotContainer.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" xmlns="http://www.w3.org/2000/svg" aria-label="spectrum plot">
+    <svg id="previewPlotSvg" viewBox="0 0 ${width} ${height}" width="100%" height="${height}" xmlns="http://www.w3.org/2000/svg" aria-label="spectrum plot">
       <rect x="0" y="0" width="${width}" height="${height}" fill="transparent" />
       ${axis}
       ${lineMarkers}
       <path d="${path}" fill="none" stroke="#60a5fa" stroke-width="1.5" />
       ${peakDots}
       ${matchedPeakDots}
+      <rect id="zoomRect" x="0" y="0" width="0" height="0" fill="rgba(96,165,250,0.16)" stroke="#60a5fa" stroke-dasharray="4 3" visibility="hidden" />
     </svg>
   `;
+
+  attachZoomHandlers({ width, height, margin, xMin, xMax });
+  updateZoomButtonState();
+}
+
+function attachZoomHandlers({ width, height, margin, xMin, xMax }) {
+  const svg = document.getElementById("previewPlotSvg");
+  const zoomRect = document.getElementById("zoomRect");
+  if (!svg || !zoomRect) return;
+
+  let startX = null;
+  const left = margin.left;
+  const right = width - margin.right;
+  const top = margin.top;
+  const bottom = height - margin.bottom;
+
+  const valueFromPx = (px) => xMin + ((px - left) / (right - left || 1)) * (xMax - xMin);
+
+  const clampX = (px) => Math.max(left, Math.min(right, px));
+
+  svg.addEventListener("pointerdown", (event) => {
+    const pt = svg.createSVGPoint();
+    pt.x = event.clientX;
+    pt.y = event.clientY;
+    const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+    if (loc.x < left || loc.x > right || loc.y < top || loc.y > bottom) return;
+    startX = clampX(loc.x);
+    zoomRect.setAttribute("x", String(startX));
+    zoomRect.setAttribute("y", String(top));
+    zoomRect.setAttribute("width", "0");
+    zoomRect.setAttribute("height", String(bottom - top));
+    zoomRect.setAttribute("visibility", "visible");
+  });
+
+  svg.addEventListener("pointermove", (event) => {
+    if (startX === null) return;
+    const pt = svg.createSVGPoint();
+    pt.x = event.clientX;
+    pt.y = event.clientY;
+    const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+    const currentX = clampX(loc.x);
+    const x = Math.min(startX, currentX);
+    const w = Math.abs(currentX - startX);
+    zoomRect.setAttribute("x", String(x));
+    zoomRect.setAttribute("width", String(w));
+  });
+
+  svg.addEventListener("pointerup", (event) => {
+    if (startX === null) return;
+    const pt = svg.createSVGPoint();
+    pt.x = event.clientX;
+    pt.y = event.clientY;
+    const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+    const endX = clampX(loc.x);
+    const minPx = Math.min(startX, endX);
+    const maxPx = Math.max(startX, endX);
+    startX = null;
+    zoomRect.setAttribute("visibility", "hidden");
+
+    if (maxPx - minPx < 8) return;
+
+    const minV = valueFromPx(minPx);
+    const maxV = valueFromPx(maxPx);
+    state.preview.zoomRange = [Math.min(minV, maxV), Math.max(minV, maxV)];
+    renderPreview();
+  });
 }
 
 function escapeHtml(str) {

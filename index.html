@@ -140,9 +140,27 @@
     </section>
 
     <section class="card">
-      <h2>3. Preview</h2>
+      <div class="inline preview-tools">
+        <h2>3. Preview</h2>
+        <label class="preview-axis-control">
+          <span>Spectrum</span>
+          <select id="previewSpectrumModeSelect">
+            <option value="raw" selected>Before calibration</option>
+            <option value="calibrated" disabled>After calibration</option>
+          </select>
+        </label>
+        <label class="preview-axis-control">
+          <span>X-axis</span>
+          <select id="previewAxisModeSelect">
+            <option value="absolute" selected>Absolute wavenumber</option>
+            <option value="raman">Raman shift</option>
+            <option value="wavelength">Wavelength</option>
+          </select>
+        </label>
+        <button id="resetZoomBtn" type="button" disabled>Reset zoom</button>
+      </div>
       <div id="plotContainer" class="plot"></div>
-      <p class="muted">Blue: spectrum / Red: detected peaks / Green: matched reference lines</p>
+      <p class="muted">Blue: spectrum / Red: detected peaks / Green: matched reference lines (drag on plot to zoom x-range)</p>
     </section>
 
     <section class="card">
