@@ -68,6 +68,7 @@ init();
 async function init() {
   populateLaserOptions();
   wireEvents();
+  applyLanguage("en");
   registerServiceWorker();
   await loadBundledLampDb();
   setDefaultSuffix();
