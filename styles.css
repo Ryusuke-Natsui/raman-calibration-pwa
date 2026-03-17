@@ -24,8 +24,27 @@ body {
     linear-gradient(180deg, #07101e 0%, #0b1220 100%);
 }
 
+
 .hero {
   padding: 2rem 1.25rem 1rem;
+  position: relative;
+}
+
+.lang-switch {
+  position: absolute;
+  top: 0.8rem;
+  right: 1.25rem;
+  display: inline-flex;
+  gap: 0.45rem;
+  align-items: center;
+  font-size: 0.78rem;
+}
+
+.lang-switch select {
+  width: auto;
+  padding: 0.25rem 0.45rem;
+  border-radius: 8px;
+  font-size: 0.78rem;
 }
 
 .eyebrow {
@@ -110,6 +129,34 @@ input[type="file"] {
   padding: 0.55rem;
 }
 
+.file-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.file-picker input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.file-picker-btn {
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #0a1325;
+  color: var(--text);
+  padding: 0.62rem 0.85rem;
+  cursor: pointer;
+}
+
+.file-picker-btn:hover {
+  border-color: var(--primary);
+}
+
 button {
   cursor: pointer;
   width: auto;
@@ -117,6 +164,15 @@ button {
 
 button:hover {
   border-color: var(--primary);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button:disabled:hover {
+  border-color: var(--line);
 }
 
 button.primary {
