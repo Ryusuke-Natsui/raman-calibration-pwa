@@ -1,6 +1,6 @@
 import { detectPeaks } from "./peaks.js";
 import { autoMatchPeaks, applyCalibration, evaluatePolynomial } from "./calibration.js";
-import { LASER_OPTIONS_NM, convertAbsAxis, outputAxisLabel } from "./units.js";
+import { LASER_OPTIONS_NM, convertAbsAxis, laserAbsWavenumberFromNm, outputAxisLabel } from "./units.js";
 import {
   parseDelimitedTable,
   parseLampCsv,
@@ -44,6 +44,7 @@ const els = {
   fitDegreeSelect: document.getElementById("fitDegreeSelect"),
   laserSelect: document.getElementById("laserSelect"),
   customLaserInput: document.getElementById("customLaserInput"),
+  inputAxisModeSelect: document.getElementById("inputAxisModeSelect"),
   outputModeSelect: document.getElementById("outputModeSelect"),
   smoothingWindowInput: document.getElementById("smoothingWindowInput"),
   prominenceWindowInput: document.getElementById("prominenceWindowInput"),
@@ -93,8 +94,6 @@ function wireEvents() {
   els.measurementFilesInput.addEventListener("change", () => updateFileStatus(els.measurementFilesInput, els.measurementFilesStatus));
 }
 
-
-
 function t(key, ...args) {
   const table = I18N[currentLang] || I18N.en;
   const val = table[key] ?? I18N.en[key];
@@ -127,6 +126,25 @@ function updateFileStatus(inputEl, statusEl) {
     return;
   }
   statusEl.textContent = t("filesSelected", count);
+}
+
+function convertRowsToAbsInput(rows, inputAxisMode, laserNm) {
+  return rows.map((row) => ({
+    ...row,
+    x: convertInputXToAbs(row.x, inputAxisMode, laserNm),
+  }));
+}
+
+function convertInputXToAbs(x, inputAxisMode, laserNm) {
+  if (inputAxisMode === "raman") {
+    return laserAbsWavenumberFromNm(laserNm) - x;
+  }
+  return x;
+}
+
+function inputAxisLabel(inputAxisMode) {
+  if (inputAxisMode === "raman") return "Raman shift (cm^-1)";
+  return "Absolute wavenumber (cm^-1)";
 }
 
 function populateLaserOptions() {
@@ -226,6 +244,7 @@ async function runCalibrationWorkflow() {
     const degree = Number(els.fitDegreeSelect.value);
     const lamp = els.lampSelect.value;
     const laserNm = getSelectedLaserNm();
+    const inputAxisMode = els.inputAxisModeSelect.value;
     const outputMode = els.outputModeSelect.value;
 
     const detectOptions = {
@@ -234,8 +253,10 @@ async function runCalibrationWorkflow() {
       minProminence: els.minProminenceInput.value === "" ? undefined : Number(els.minProminenceInput.value),
     };
 
-    const peakResult = detectPeaks(calibrationRows, detectOptions);
-    const xValues = calibrationRows.map((r) => r.x);
+    const calibrationRowsForFit = convertRowsToAbsInput(calibrationRows, inputAxisMode, laserNm);
+
+    const peakResult = detectPeaks(calibrationRowsForFit, detectOptions);
+    const xValues = calibrationRowsForFit.map((r) => r.x);
     const xMin = Math.min(...xValues);
     const xMax = Math.max(...xValues);
 
@@ -252,18 +273,19 @@ async function runCalibrationWorkflow() {
       degree,
       lamp,
       laserNm,
+      inputAxisMode,
       outputMode,
       coeffs: match.coeffs,
       rmsError: match.rmsError,
       matchedPeaks: match.measuredPeaks,
       referenceLines: match.referenceLines,
       residuals: match.residuals,
-      calibrationRows,
+      calibrationRows: calibrationRowsForFit,
       peakResult,
     };
 
     renderPlot({
-      rows: calibrationRows,
+      rows: calibrationRowsForFit,
       peakResult,
       matchedPeaks: match.measuredPeaks,
       matchedLines: match.referenceLines,
@@ -293,6 +315,7 @@ function renderSummary(cal) {
     ["Lamp", cal.lamp],
     ["Model", `${cal.degree} order`],
     ["Laser", `${formatNumber(cal.laserNm, 2)} nm`],
+    ["Input axis", inputAxisLabel(cal.inputAxisMode)],
     ["Output", outputAxisLabel(cal.outputMode)],
     ["Matched peaks", String(cal.matchedPeaks.length)],
     ["RMS", `${formatNumber(cal.rmsError, 5)} cm^-1`],
@@ -342,7 +365,8 @@ function renderDownloads(files) {
     btn.addEventListener("click", async () => {
       const text = await readFileText(file);
       const rows = parseDelimitedTable(text);
-      const absCalibrated = applyCalibration(state.lastCalibration.coeffs, rows.map((r) => r.x));
+      const inputX = rows.map((r) => convertInputXToAbs(r.x, state.lastCalibration.inputAxisMode, state.lastCalibration.laserNm));
+      const absCalibrated = applyCalibration(state.lastCalibration.coeffs, inputX);
       const converted = convertAbsAxis(absCalibrated, state.lastCalibration.outputMode, state.lastCalibration.laserNm);
       const out = converted.map((x, i) => `${x}\t${rows[i].y}`).join("\n") + "\n";
 
