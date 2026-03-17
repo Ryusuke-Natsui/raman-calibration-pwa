@@ -11,6 +11,13 @@
 </head>
 <body>
   <header class="hero">
+    <div class="lang-switch">
+      <label for="languageSelect" data-i18n="language">Language</label>
+      <select id="languageSelect" aria-label="Language selector">
+        <option value="en">English</option>
+        <option value="ja">日本語</option>
+      </select>
+    </div>
     <div>
       <p class="eyebrow">Triple monochromator calibration</p>
       <h1>Raman Calibration PWA</h1>
@@ -27,7 +34,11 @@
           <span>Lamp reference table</span>
           <div class="inline">
             <button id="loadDefaultLampDbBtn" type="button">Load bundled CSV</button>
-            <input id="lampDbFileInput" type="file" accept=".csv,text/csv" />
+            <div class="file-picker">
+              <input id="lampDbFileInput" type="file" accept=".csv,text/csv" />
+              <label for="lampDbFileInput" class="file-picker-btn" data-i18n="selectFile">Select File</label>
+              <span id="lampDbFileStatus" class="muted" data-i18n="noFileSelected">No file selected</span>
+            </div>
           </div>
           <small id="lampDbStatus">Not loaded yet</small>
         </label>
@@ -87,12 +98,20 @@
 
         <label class="field">
           <span>Calibration text file</span>
-          <input id="calibrationFileInput" type="file" accept=".txt,.dat,.csv,text/plain" />
+          <div class="file-picker">
+            <input id="calibrationFileInput" type="file" accept=".txt,.dat,.csv,text/plain" />
+            <label for="calibrationFileInput" class="file-picker-btn" data-i18n="selectFile">Select File</label>
+            <span id="calibrationFileStatus" class="muted" data-i18n="noFileSelected">No file selected</span>
+          </div>
         </label>
 
         <label class="field">
           <span>Measurement files to apply calibration (multiple allowed)</span>
-          <input id="measurementFilesInput" type="file" accept=".txt,.dat,.csv,text/plain" multiple />
+          <div class="file-picker">
+            <input id="measurementFilesInput" type="file" accept=".txt,.dat,.csv,text/plain" multiple />
+            <label for="measurementFilesInput" class="file-picker-btn" data-i18n="selectFile">Select File</label>
+            <span id="measurementFilesStatus" class="muted" data-i18n="noFileSelected">No file selected</span>
+          </div>
         </label>
 
         <label class="field">
