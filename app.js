@@ -19,6 +19,23 @@ const state = {
   lastCalibration: null,
 };
 
+const I18N = {
+  en: {
+    language: "Language",
+    selectFile: "Select File",
+    noFileSelected: "No file selected",
+    filesSelected: (count) => `${count} files selected`,
+  },
+  ja: {
+    language: "言語",
+    selectFile: "ファイルを選択",
+    noFileSelected: "ファイルが選択されていません",
+    filesSelected: (count) => `${count} 件のファイルを選択中`,
+  },
+};
+
+let currentLang = "en";
+
 const els = {
   lampDbFileInput: document.getElementById("lampDbFileInput"),
   loadDefaultLampDbBtn: document.getElementById("loadDefaultLampDbBtn"),
@@ -42,6 +59,10 @@ const els = {
   fitSummary: document.getElementById("fitSummary"),
   matchTableBody: document.querySelector("#matchTable tbody"),
   downloadList: document.getElementById("downloadList"),
+  languageSelect: document.getElementById("languageSelect"),
+  lampDbFileStatus: document.getElementById("lampDbFileStatus"),
+  calibrationFileStatus: document.getElementById("calibrationFileStatus"),
+  measurementFilesStatus: document.getElementById("measurementFilesStatus"),
 };
 
 init();
@@ -49,6 +70,7 @@ init();
 async function init() {
   populateLaserOptions();
   wireEvents();
+  applyLanguage("en");
   registerServiceWorker();
   await loadBundledLampDb();
   setDefaultSuffix();
@@ -63,6 +85,48 @@ function wireEvents() {
   els.downloadExampleNoteBtn.addEventListener("click", () => {
     setStatus("Bundled example file: `examples/20260205_Ne_example.txt`. If you upload this app to GitHub, include the `examples` folder as well.");
   });
+  els.languageSelect.addEventListener("change", (event) => {
+    applyLanguage(event.target.value);
+  });
+  els.lampDbFileInput.addEventListener("change", () => updateFileStatus(els.lampDbFileInput, els.lampDbFileStatus));
+  els.calibrationFileInput.addEventListener("change", () => updateFileStatus(els.calibrationFileInput, els.calibrationFileStatus));
+  els.measurementFilesInput.addEventListener("change", () => updateFileStatus(els.measurementFilesInput, els.measurementFilesStatus));
+}
+
+
+
+function t(key, ...args) {
+  const table = I18N[currentLang] || I18N.en;
+  const val = table[key] ?? I18N.en[key];
+  return typeof val === "function" ? val(...args) : val;
+}
+
+function applyLanguage(lang) {
+  currentLang = I18N[lang] ? lang : "en";
+  document.documentElement.lang = currentLang;
+  els.languageSelect.value = currentLang;
+
+  document.querySelectorAll("[data-i18n]").forEach((node) => {
+    const key = node.dataset.i18n;
+    node.textContent = t(key);
+  });
+
+  updateFileStatus(els.lampDbFileInput, els.lampDbFileStatus);
+  updateFileStatus(els.calibrationFileInput, els.calibrationFileStatus);
+  updateFileStatus(els.measurementFilesInput, els.measurementFilesStatus);
+}
+
+function updateFileStatus(inputEl, statusEl) {
+  const count = inputEl.files?.length || 0;
+  if (count === 0) {
+    statusEl.textContent = t("noFileSelected");
+    return;
+  }
+  if (count === 1) {
+    statusEl.textContent = inputEl.files[0].name;
+    return;
+  }
+  statusEl.textContent = t("filesSelected", count);
 }
 
 function populateLaserOptions() {
