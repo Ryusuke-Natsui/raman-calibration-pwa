@@ -30,8 +30,6 @@ const state = {
 
 
 const els = {
-  lampDbFileInput: document.getElementById("lampDbFileInput"),
-  loadDefaultLampDbBtn: document.getElementById("loadDefaultLampDbBtn"),
   lampDbStatus: document.getElementById("lampDbStatus"),
   lampSelect: document.getElementById("lampSelect"),
   fitDegreeSelect: document.getElementById("fitDegreeSelect"),
@@ -55,7 +53,6 @@ const els = {
   fitSummary: document.getElementById("fitSummary"),
   matchTableBody: document.querySelector("#matchTable tbody"),
   downloadList: document.getElementById("downloadList"),
-  lampDbFileStatus: document.getElementById("lampDbFileStatus"),
   calibrationFileStatus: document.getElementById("calibrationFileStatus"),
   measurementFilesStatus: document.getElementById("measurementFilesStatus"),
   previewSpectrumModeSelect: document.getElementById("previewSpectrumModeSelect"),
@@ -78,8 +75,6 @@ async function init() {
 }
 
 function wireEvents() {
-  els.loadDefaultLampDbBtn.addEventListener("click", loadBundledLampDb);
-  els.lampDbFileInput.addEventListener("change", onLampDbFileChange);
   els.lampSelect.addEventListener("change", () => {
     setDefaultSuffix();
     invalidatePeakDetection("Settings changed. Run peak detection again.");
@@ -102,7 +97,6 @@ function wireEvents() {
   els.downloadExampleNoteBtn.addEventListener("click", () => {
     setStatus("Bundled example file: `examples/20260205_Ne_example.txt`. If you upload this app to GitHub, include the `examples` folder as well.");
   });
-  els.lampDbFileInput.addEventListener("change", () => updateFileStatus(els.lampDbFileInput, els.lampDbFileStatus));
   els.measurementFilesInput.addEventListener("change", () => updateFileStatus(els.measurementFilesInput, els.measurementFilesStatus));
   els.previewSpectrumModeSelect.addEventListener("change", () => {
     if (!state.preview) return;
@@ -177,17 +171,10 @@ function populateLaserOptions() {
 async function loadBundledLampDb() {
   const res = await fetch("./data/calibration_lamps_data_for_ThomasLab.csv");
   const text = await res.text();
-  loadLampDbFromText(text, "Loaded bundled CSV");
+  loadLampDbFromText(text, "Using bundled CSV");
   invalidatePeakDetection();
 }
 
-async function onLampDbFileChange(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  const text = await readFileText(file);
-  loadLampDbFromText(text, `Loaded user CSV: ${file.name}`);
-  invalidatePeakDetection();
-}
 
 function loadLampDbFromText(text, message) {
   state.lampDb = parseLampCsv(text);
