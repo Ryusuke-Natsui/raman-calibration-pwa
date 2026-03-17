@@ -30,22 +30,6 @@ body {
   position: relative;
 }
 
-.lang-switch {
-  position: absolute;
-  top: 0.8rem;
-  right: 1.25rem;
-  display: inline-flex;
-  gap: 0.45rem;
-  align-items: center;
-  font-size: 0.78rem;
-}
-
-.lang-switch select {
-  width: auto;
-  padding: 0.25rem 0.45rem;
-  border-radius: 8px;
-  font-size: 0.78rem;
-}
 
 .eyebrow {
   margin: 0 0 0.4rem;

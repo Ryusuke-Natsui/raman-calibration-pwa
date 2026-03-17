@@ -36,8 +36,8 @@
             <button id="loadDefaultLampDbBtn" type="button">Load bundled CSV</button>
             <div class="file-picker">
               <input id="lampDbFileInput" type="file" accept=".csv,text/csv" />
-              <label for="lampDbFileInput" class="file-picker-btn" data-i18n="selectFile">Select File</label>
-              <span id="lampDbFileStatus" class="muted" data-i18n="noFileSelected">No file selected</span>
+              <label for="lampDbFileInput" class="file-picker-btn">Select File</label>
+              <span id="lampDbFileStatus" class="muted">No file selected</span>
             </div>
           </div>
           <small id="lampDbStatus">Not loaded yet</small>
@@ -68,8 +68,8 @@
         <label class="field">
           <span>Input x-axis unit</span>
           <select id="inputAxisModeSelect">
-            <option value="absolute" selected>Absolute wavenumber (cm^-1)</option>
-            <option value="raman">Raman shift (cm^-1, selected laser)</option>
+            <option value="absolute">Absolute wavenumber (cm^-1)</option>
+            <option value="raman" selected>Raman shift (cm^-1, selected laser)</option>
           </select>
         </label>
 
@@ -112,8 +112,8 @@
           <span>Calibration text file</span>
           <div class="file-picker">
             <input id="calibrationFileInput" type="file" accept=".txt,.dat,.csv,text/plain" />
-            <label for="calibrationFileInput" class="file-picker-btn" data-i18n="selectFile">Select File</label>
-            <span id="calibrationFileStatus" class="muted" data-i18n="noFileSelected">No file selected</span>
+            <label for="calibrationFileInput" class="file-picker-btn">Select File</label>
+            <span id="calibrationFileStatus" class="muted">No file selected</span>
           </div>
         </label>
 
@@ -121,8 +121,8 @@
           <span>Measurement files to apply calibration (multiple allowed)</span>
           <div class="file-picker">
             <input id="measurementFilesInput" type="file" accept=".txt,.dat,.csv,text/plain" multiple />
-            <label for="measurementFilesInput" class="file-picker-btn" data-i18n="selectFile">Select File</label>
-            <span id="measurementFilesStatus" class="muted" data-i18n="noFileSelected">No file selected</span>
+            <label for="measurementFilesInput" class="file-picker-btn">Select File</label>
+            <span id="measurementFilesStatus" class="muted">No file selected</span>
           </div>
         </label>
 
