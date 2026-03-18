@@ -1,4 +1,4 @@
-const CACHE_NAME = "raman-calibration-pwa-v1";
+const CACHE_NAME = "raman-calibration-pwa-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -37,11 +37,18 @@ self.addEventListener("fetch", (event) => {
       if (cached) return cached;
       return fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
           return response;
         })
-        .catch(() => caches.match("./index.html"));
+        .catch(() => {
+          if (request.mode === "navigate") {
+            return caches.match("./index.html");
+          }
+          throw new Error(`Network error while fetching ${request.url}`);
+        });
     })
   );
 });
