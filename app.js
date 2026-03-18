@@ -20,6 +20,8 @@ import {
   extname,
 } from "./utils.js";
 
+const BUNDLED_LAMP_DB_URL = new URL("./data/calibration_lamps_data_for_ThomasLab.csv", import.meta.url);
+
 const state = {
   lampDb: [],
   lampNames: [],
@@ -175,12 +177,15 @@ async function loadBundledLampDb() {
     els.reloadLampDbBtn.disabled = true;
     els.lampDbStatus.textContent = "Loading bundled CSV...";
 
-    const res = await fetch("./data/calibration_lamps_data_for_ThomasLab.csv", { cache: "no-store" });
+    const res = await fetch(BUNDLED_LAMP_DB_URL, { cache: "no-store" });
     if (!res.ok) {
       throw new Error(`Failed to load bundled CSV (HTTP ${res.status}).`);
     }
 
     const text = await res.text();
+    if (!text.includes("Wavelength_nm") || !text.includes("Abs. Wavenumber_cm^-1")) {
+      throw new Error("Bundled CSV request returned unexpected content. Check the deployment path or service worker cache.");
+    }
     loadLampDbFromText(text, "Using bundled CSV");
     invalidatePeakDetection();
   } catch (error) {
@@ -302,8 +307,10 @@ async function detectPeaksWorkflow() {
       laserNm,
       inputAxisMode,
       outputMode,
+      calibrationRows,
       calibrationRowsForFit,
       peakResult,
+      detectOptions,
       xMin: Math.min(...xValues),
       xMax: Math.max(...xValues),
     };
@@ -334,22 +341,29 @@ async function runCalibrationWorkflow() {
     setStatus("Running calibration...");
 
     const measurementFiles = [...els.measurementFilesInput.files];
-    const { degree, lamp, laserNm, inputAxisMode, outputMode, calibrationRowsForFit, peakResult, xMin, xMax } = state.peakDetection;
+    const { degree, lamp, laserNm, inputAxisMode, outputMode } = state.peakDetection;
 
     const referenceLines = state.lampDb.filter((row) => row.lamp === lamp);
-    const match = autoMatchPeaks({
-      detectedPeaks: peakResult.peaks,
-      referenceLines,
-      degree,
-      xMin,
-      xMax,
-    });
+    const resolvedCalibration = resolveCalibrationMatch(state.peakDetection, referenceLines);
+    const { match, calibrationRowsForFit, peakResult, xMin, xMax, inputAxisMode: resolvedInputAxisMode, fallbackReason } = resolvedCalibration;
+
+    if (fallbackReason) {
+      els.inputAxisModeSelect.value = resolvedInputAxisMode;
+      state.peakDetection = {
+        ...state.peakDetection,
+        inputAxisMode: resolvedInputAxisMode,
+        calibrationRowsForFit,
+        peakResult,
+        xMin,
+        xMax,
+      };
+    }
 
     state.lastCalibration = {
       degree,
       lamp,
       laserNm,
-      inputAxisMode,
+      inputAxisMode: resolvedInputAxisMode,
       outputMode,
       coeffs: match.coeffs,
       rmsError: match.rmsError,
@@ -358,6 +372,8 @@ async function runCalibrationWorkflow() {
       residuals: match.residuals,
       calibrationRows: calibrationRowsForFit,
       peakResult,
+      xMin,
+      xMax,
     };
 
     state.preview = {
@@ -376,7 +392,8 @@ async function runCalibrationWorkflow() {
     renderMatchTable(state.lastCalibration);
     renderDownloads(measurementFiles);
 
-    setStatus(`Done: ${lamp} / degree ${degree} / RMS = ${formatNumber(match.rmsError, 4)} cm^-1`);
+    const fallbackNote = fallbackReason ? ` / auto-switched input axis to ${inputAxisLabel(resolvedInputAxisMode)}` : "";
+    setStatus(`Done: ${lamp} / degree ${degree} / RMS = ${formatNumber(match.rmsError, 4)} cm^-1${fallbackNote}`);
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Processing failed.", true);
@@ -392,6 +409,63 @@ function validateBeforeCalibration() {
   if (!state.peakDetection) throw new Error("Please run peak detection first.");
   if (!els.measurementFilesInput.files?.length) throw new Error("Please select one or more measurement files.");
   if (!validateSuffix()) throw new Error("Please fix the output filename suffix.");
+}
+
+
+function buildCalibrationCandidate(peakDetection, inputAxisMode) {
+  const calibrationRowsForFit = convertRowsToAbsInput(peakDetection.calibrationRows, inputAxisMode, peakDetection.laserNm);
+  const peakResult = detectPeaks(calibrationRowsForFit, peakDetection.detectOptions);
+  const xValues = calibrationRowsForFit.map((row) => row.x);
+  return {
+    inputAxisMode,
+    calibrationRowsForFit,
+    peakResult,
+    xMin: Math.min(...xValues),
+    xMax: Math.max(...xValues),
+  };
+}
+
+function resolveCalibrationMatch(peakDetection, referenceLines) {
+  const primaryCandidate = {
+    inputAxisMode: peakDetection.inputAxisMode,
+    calibrationRowsForFit: peakDetection.calibrationRowsForFit,
+    peakResult: peakDetection.peakResult,
+    xMin: peakDetection.xMin,
+    xMax: peakDetection.xMax,
+  };
+
+  try {
+    return {
+      ...primaryCandidate,
+      match: autoMatchPeaks({
+        detectedPeaks: primaryCandidate.peakResult.peaks,
+        referenceLines,
+        degree: peakDetection.degree,
+        xMin: primaryCandidate.xMin,
+        xMax: primaryCandidate.xMax,
+      }),
+      fallbackReason: null,
+    };
+  } catch (error) {
+    const canTryAlternate = error.message === "Not enough lamp lines fall within the measured x-range.";
+    const alternateMode = peakDetection.inputAxisMode === "raman" ? "absolute" : "raman";
+    if (!canTryAlternate) throw error;
+
+    const alternateCandidate = buildCalibrationCandidate(peakDetection, alternateMode);
+    const alternateMatch = autoMatchPeaks({
+      detectedPeaks: alternateCandidate.peakResult.peaks,
+      referenceLines,
+      degree: peakDetection.degree,
+      xMin: alternateCandidate.xMin,
+      xMax: alternateCandidate.xMax,
+    });
+
+    return {
+      ...alternateCandidate,
+      match: alternateMatch,
+      fallbackReason: error.message,
+    };
+  }
 }
 
 function renderSummary(cal) {
