@@ -21,6 +21,13 @@ import {
 } from "./utils.js";
 
 const BUNDLED_LAMP_DB_URL = new URL("./data/calibration_lamps_data_for_ThomasLab.csv", import.meta.url);
+const LASER_FILENAME_ALIASES = new Map([
+  ["488nm", "488.00"],
+  ["532nm", "532.08"],
+  ["cf514", "514.55"],
+  ["cf561", "561.32"],
+  ["cf633", "632.93"],
+]);
 
 const state = {
   lampDb: [],
@@ -129,15 +136,28 @@ async function handleCalibrationFileChange() {
   state.lampInference = null;
 
   const calibrationFile = els.calibrationFileInput.files?.[0];
-  if (!calibrationFile || !state.lampNames.length) return;
+  if (!calibrationFile) return;
 
-  const inferredLamp = inferLampFromFileName(calibrationFile.name, state.lampNames);
-  if (!inferredLamp) return;
+  const inferredLamp = state.lampNames.length ? inferLampFromFileName(calibrationFile.name, state.lampNames) : null;
+  const inferredLaser = inferLaserFromFileName(calibrationFile.name);
 
-  els.lampSelect.value = inferredLamp.lamp;
-  setDefaultSuffix();
-  state.lampInference = inferredLamp;
-  setStatus(`Lamp guessed from filename: ${inferredLamp.lamp}. Run peak detection to verify.`);
+  if (inferredLamp) {
+    els.lampSelect.value = inferredLamp.lamp;
+    setDefaultSuffix();
+    state.lampInference = inferredLamp;
+  }
+
+  if (inferredLaser) {
+    els.laserSelect.value = inferredLaser.optionValue;
+    els.customLaserInput.value = "";
+  }
+
+  if (inferredLamp || inferredLaser) {
+    const updates = [];
+    if (inferredLamp) updates.push(`lamp: ${inferredLamp.lamp}`);
+    if (inferredLaser) updates.push(`laser: ${inferredLaser.label}`);
+    setStatus(`Settings guessed from filename (${updates.join(", ")}). Run peak detection to verify.`);
+  }
 }
 
 function lampFamilyKey(lamp) {
@@ -163,6 +183,23 @@ function inferLampFromFileName(fileName, lampNames) {
     }
     if (candidate.sanitized && normalized.includes(candidate.sanitized)) {
       return { lamp: candidate.lamp, source: "filename" };
+    }
+  }
+
+  return null;
+}
+
+function inferLaserFromFileName(fileName) {
+  const normalized = String(fileName).toLowerCase();
+  const compact = normalized.replace(/[^a-z0-9]+/g, "");
+
+  for (const [alias, optionValue] of LASER_FILENAME_ALIASES.entries()) {
+    if (compact.includes(alias)) {
+      return {
+        optionValue,
+        label: `${optionValue} nm`,
+        source: "filename",
+      };
     }
   }
 
