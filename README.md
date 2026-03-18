@@ -6,6 +6,7 @@ PWA for calibrating Raman spectra measured with a triple monochromator.
 
 - loads a lamp reference table from `data/calibration_lamps_data_for_ThomasLab.csv`
 - guesses the calibration lamp automatically from the uploaded filename and detected peak positions (Ar / Kr / Ne / Xe), while still allowing manual override
+- guesses the laser wavelength automatically from the calibration filename for supported aliases (`488nm`, `532nm`, `CF514`, `CF561`, `CF633`)
 - reads a calibration spectrum text file
 - detects peaks automatically
 - matches measured peaks to the inferred lamp's absolute wavenumber lines
