@@ -39,6 +39,7 @@ const state = {
   preview: null,
   lampInference: null,
   outputDirectoryHandle: null,
+  selectedPreviewPeak: null,
 };
 
 
@@ -75,6 +76,7 @@ const els = {
   previewSpectrumModeSelect: document.getElementById("previewSpectrumModeSelect"),
   previewAxisModeSelect: document.getElementById("previewAxisModeSelect"),
   resetZoomBtn: document.getElementById("resetZoomBtn"),
+  selectedPeakDetails: document.getElementById("selectedPeakDetails"),
 };
 
 init();
@@ -486,8 +488,10 @@ function invalidatePeakDetection(statusMessage = "") {
   updateCalibrationButtonState();
   state.lastCalibration = null;
   state.preview = null;
+  state.selectedPreviewPeak = null;
   els.previewSpectrumModeSelect.value = "raw";
   els.plotContainer.innerHTML = "";
+  renderSelectedPeakDetails();
   els.fitSummary.innerHTML = "";
   els.matchTableBody.innerHTML = "";
   els.downloadList.innerHTML = "";
@@ -914,9 +918,49 @@ async function renderDownloads(files) {
   }
 }
 
+function getSelectedPeakData() {
+  if (!state.preview || !state.selectedPreviewPeak) return null;
+  const peak = state.preview.peakResult?.peaks?.[state.selectedPreviewPeak.index];
+  if (!peak) return null;
+
+  const previewMode = els.previewAxisModeSelect.value;
+  const spectrumMode = els.previewSpectrumModeSelect.value;
+  const xTransformer = spectrumMode === "calibrated" && state.preview.calibrationCoeffs
+    ? (x) => evaluatePolynomial(state.preview.calibrationCoeffs, x)
+    : (x) => x;
+
+  const transformedX = xTransformer(peak.x);
+  return {
+    peak,
+    spectrumMode,
+    previewMode,
+    xValue: convertAbsForPreview(transformedX, previewMode, state.preview.laserNm),
+  };
+}
+
+function renderSelectedPeakDetails() {
+  if (!els.selectedPeakDetails) return;
+  const selected = getSelectedPeakData();
+  if (!selected) {
+    els.selectedPeakDetails.innerHTML = '<span class="muted">検出ピークをクリックすると、ピーク中心位置の x 軸値をここに表示します。</span>';
+    return;
+  }
+
+  const { peak, spectrumMode, previewMode, xValue } = selected;
+  const modeLabel = spectrumMode === "calibrated" ? "補正後" : "補正前";
+  els.selectedPeakDetails.innerHTML = `
+    <strong>選択中のピーク中心</strong>
+    <span>${escapeHtml(previewAxisLabel(previewMode))}: <code>${formatNumber(xValue, 6)}</code></span>
+    <span>Intensity: <code>${formatNumber(peak.y, 3)}</code></span>
+    <span>Prominence: <code>${formatNumber(peak.prominence, 3)}</code></span>
+    <span class="muted">表示モード: ${modeLabel}</span>
+  `;
+}
+
 function renderPreview() {
   if (!state.preview) return;
   renderPlot(state.preview);
+  renderSelectedPeakDetails();
 }
 
 function updateZoomButtonState() {
@@ -991,10 +1035,13 @@ function renderPlot({ rows, peakResult, matchedPeaks = [], matchedLines = [], la
 
   const path = inZoom.map((r, i) => `${i === 0 ? "M" : "L"} ${sx(r.xDisplay).toFixed(2)} ${sy(r.y).toFixed(2)}`).join(" ");
 
-  const peakDots = peakResult.peaks.map((p) => ({ ...p, xDisplay: convertAbsForPreview(xTransformer(p.x), previewMode, laserNm) }))
+  const peakDots = peakResult.peaks.map((p, index) => ({ ...p, index, xDisplay: convertAbsForPreview(xTransformer(p.x), previewMode, laserNm) }))
     .filter((p) => p.xDisplay >= xMin && p.xDisplay <= xMax)
     .slice(0, 60)
-    .map((p) => `<circle cx="${sx(p.xDisplay)}" cy="${sy(p.y)}" r="3.5" fill="#f87171"><title>x=${formatNumber(p.xDisplay, 3)}, prom=${formatNumber(p.prominence, 2)}</title></circle>`)
+    .map((p) => {
+      const isSelected = state.selectedPreviewPeak?.index === p.index;
+      return `<circle class="preview-peak-dot${isSelected ? ' is-selected' : ''}" data-peak-index="${p.index}" cx="${sx(p.xDisplay)}" cy="${sy(p.y)}" r="${isSelected ? '6' : '4.5'}" fill="#f87171" stroke="${isSelected ? '#fef3c7' : '#ffffff'}" stroke-width="${isSelected ? '2' : '1'}"><title>x=${formatNumber(p.xDisplay, 3)}, prom=${formatNumber(p.prominence, 2)}</title></circle>`;
+    })
     .join("");
 
   const matchedPeakDots = matchedPeaks.map((p) => ({ ...p, xDisplay: convertAbsForPreview(xTransformer(p.x), previewMode, laserNm) }))
@@ -1038,8 +1085,24 @@ function renderPlot({ rows, peakResult, matchedPeaks = [], matchedLines = [], la
     </svg>
   `;
 
+  attachPeakSelectionHandlers();
   attachZoomHandlers({ width, height, margin, xMin, xMax });
   updateZoomButtonState();
+}
+
+function attachPeakSelectionHandlers() {
+  const svg = document.getElementById("previewPlotSvg");
+  if (!svg) return;
+
+  for (const dot of svg.querySelectorAll(".preview-peak-dot")) {
+    dot.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const index = Number(dot.dataset.peakIndex);
+      if (!Number.isFinite(index)) return;
+      state.selectedPreviewPeak = { index };
+      renderPreview();
+    });
+  }
 }
 
 function attachZoomHandlers({ width, height, margin, xMin, xMax }) {
@@ -1058,6 +1121,7 @@ function attachZoomHandlers({ width, height, margin, xMin, xMax }) {
   const clampX = (px) => Math.max(left, Math.min(right, px));
 
   svg.addEventListener("pointerdown", (event) => {
+    if (event.target.closest?.(".preview-peak-dot")) return;
     const pt = svg.createSVGPoint();
     pt.x = event.clientX;
     pt.y = event.clientY;
