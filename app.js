@@ -38,6 +38,7 @@ const state = {
   peakDetection: null,
   preview: null,
   lampInference: null,
+  outputDirectoryHandle: null,
 };
 
 
@@ -66,6 +67,8 @@ const els = {
   fitSummary: document.getElementById("fitSummary"),
   matchTableBody: document.querySelector("#matchTable tbody"),
   downloadCalibrationResultsBtn: document.getElementById("downloadCalibrationResultsBtn"),
+  chooseOutputFolderBtn: document.getElementById("chooseOutputFolderBtn"),
+  outputFolderStatus: document.getElementById("outputFolderStatus"),
   downloadList: document.getElementById("downloadList"),
   downloadAllBtn: document.getElementById("downloadAllBtn"),
   calibrationFileStatus: document.getElementById("calibrationFileStatus"),
@@ -89,6 +92,7 @@ async function init() {
   updateCalibrationResultsButtonState();
   updateZoomButtonState();
   updateDownloadAllButtonState();
+  updateOutputFolderStatus();
 }
 
 function wireEvents() {
@@ -110,6 +114,7 @@ function wireEvents() {
   els.detectPeaksBtn.addEventListener("click", detectPeaksWorkflow);
   els.runCalibrationBtn.addEventListener("click", runCalibrationWorkflow);
   els.downloadAllBtn.addEventListener("click", downloadAllOutputs);
+  els.chooseOutputFolderBtn?.addEventListener("click", chooseOutputFolder);
   els.downloadExampleNoteBtn.addEventListener("click", () => {
     setStatus("Bundled example file: `examples/20260205_Ne_example.txt`. If you upload this app to GitHub, include the `examples` folder as well.");
   });
@@ -420,6 +425,52 @@ function setStatus(message, isError = false) {
   els.statusBox.style.borderColor = isError ? "var(--danger)" : "var(--line)";
 }
 
+function canWriteToChosenFolder() {
+  return typeof window.showDirectoryPicker === "function";
+}
+
+function updateOutputFolderStatus() {
+  if (!els.outputFolderStatus) return;
+  if (!canWriteToChosenFolder()) {
+    els.outputFolderStatus.textContent = "Direct save to a chosen folder is available in Chromium-based browsers only.";
+    return;
+  }
+  if (state.outputDirectoryHandle) {
+    els.outputFolderStatus.textContent = `Saving directly to: ${state.outputDirectoryHandle.name}`;
+    return;
+  }
+  els.outputFolderStatus.textContent = "Optional: choose an output folder to save files there directly.";
+}
+
+async function chooseOutputFolder() {
+  if (!canWriteToChosenFolder()) {
+    setStatus("This browser does not support direct folder save. Please use regular download.", true);
+    updateOutputFolderStatus();
+    return;
+  }
+
+  try {
+    const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+    state.outputDirectoryHandle = handle;
+    updateOutputFolderStatus();
+    setStatus(`Output folder selected: ${handle.name}. Files will be saved there directly.`);
+    if (state.lastCalibration && els.measurementFilesInput.files?.length) {
+      renderDownloads([...els.measurementFilesInput.files]);
+    }
+  } catch (error) {
+    if (error?.name === "AbortError") return;
+    console.error(error);
+    setStatus(error.message || "Failed to choose output folder.", true);
+  }
+}
+
+async function writeTextToDirectory(directoryHandle, filename, text) {
+  const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(text);
+  await writable.close();
+}
+
 function updateCalibrationButtonState() {
   els.runCalibrationBtn.disabled = !state.peakDetection;
 }
@@ -728,12 +779,24 @@ function updateCalibrationResultsButtonState() {
   els.downloadCalibrationResultsBtn.disabled = !state.lastCalibration;
 }
 
-function downloadCalibrationResults() {
+async function downloadCalibrationResults() {
   if (!state.lastCalibration) return;
   const fileBase = els.calibrationFileInput.files?.[0]?.name ? basenameWithoutExt(els.calibrationFileInput.files[0].name) : 'calibration';
   const suffix = els.suffixInput.value.trim() || '-clb';
   const filename = `${fileBase}${suffix}_results.txt`;
-  downloadText(filename, buildCalibrationResultsText(state.lastCalibration));
+  const text = buildCalibrationResultsText(state.lastCalibration);
+
+  try {
+    if (state.outputDirectoryHandle) {
+      await writeTextToDirectory(state.outputDirectoryHandle, filename, text);
+      setStatus(`Saved calibration results to ${state.outputDirectoryHandle.name}/${filename}.`);
+      return;
+    }
+    downloadText(filename, text);
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "Failed to save calibration results.", true);
+  }
 }
 
 function renderMatchTable(cal) {
@@ -772,18 +835,26 @@ async function buildOutputFile(file) {
 async function downloadAllOutputs() {
   try {
     validateBeforeCalibration();
-    setStatus("Preparing ZIP archive...");
     els.downloadAllBtn.disabled = true;
 
     const files = [...els.measurementFilesInput.files];
     const outputFiles = await Promise.all(files.map((file) => buildOutputFile(file)));
+
+    if (state.outputDirectoryHandle) {
+      setStatus("Saving calibrated files to the selected folder...");
+      await Promise.all(outputFiles.map((file) => writeTextToDirectory(state.outputDirectoryHandle, file.name, file.data)));
+      setStatus(`Saved ${outputFiles.length} calibrated files to ${state.outputDirectoryHandle.name}.`);
+      return;
+    }
+
+    setStatus("Preparing ZIP archive...");
     const zipBlob = await createZipBlob(outputFiles);
     const baseName = state.lastCalibration ? sanitizeLampName(state.lastCalibration.lamp) : "outputs";
     downloadBlob(`${baseName}_calibrated_outputs.zip`, zipBlob);
     setStatus(`Downloaded ${outputFiles.length} calibrated files as ZIP.`);
   } catch (error) {
     console.error(error);
-    setStatus(error.message || "Failed to create ZIP archive.", true);
+    setStatus(error.message || "Failed to create output files.", true);
   } finally {
     updateDownloadAllButtonState();
   }
@@ -810,15 +881,21 @@ async function renderDownloads(files) {
     meta.innerHTML = `
       <div class="name">${escapeHtml(file.name)}</div>
       <div class="muted">suffix: <span class="code">${escapeHtml(suffix)}</span></div>
+      <div class="muted">${state.outputDirectoryHandle ? `save to: <span class="code">${escapeHtml(state.outputDirectoryHandle.name)}</span>` : "save via browser download"}</div>
     `;
 
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.textContent = "Download";
+    btn.textContent = state.outputDirectoryHandle ? "Save" : "Download";
     btn.addEventListener("click", async () => {
       try {
         const outputFile = await buildOutputFile(file);
-        downloadText(outputFile.name, outputFile.data);
+        if (state.outputDirectoryHandle) {
+          await writeTextToDirectory(state.outputDirectoryHandle, outputFile.name, outputFile.data);
+          setStatus(`Saved ${outputFile.name} to ${state.outputDirectoryHandle.name}.`);
+        } else {
+          downloadText(outputFile.name, outputFile.data);
+        }
       } catch (error) {
         console.error(error);
         setStatus(error.message || `Failed to prepare ${file.name}.`, true);
