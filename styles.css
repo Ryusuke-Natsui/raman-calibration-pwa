@@ -120,6 +120,30 @@ input[type="file"] {
   flex-wrap: wrap;
 }
 
+.drop-zone {
+  width: 100%;
+  min-height: 108px;
+  padding: 0.85rem;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.02);
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.drop-zone:hover {
+  border-color: var(--primary);
+}
+
+.drop-zone.is-dragover {
+  border-color: var(--primary);
+  background: rgba(96,165,250,0.1);
+  transform: translateY(-1px);
+}
+
+.drop-zone-hint {
+  width: 100%;
+}
+
 .file-picker input[type="file"] {
   position: absolute;
   width: 1px;
@@ -138,6 +162,10 @@ input[type="file"] {
 }
 
 .file-picker-btn:hover {
+  border-color: var(--primary);
+}
+
+.drop-zone.is-dragover .file-picker-btn {
   border-color: var(--primary);
 }
 
@@ -216,6 +244,19 @@ small, .muted {
 .preview-tools h2 {
   margin: 0;
 }
+
+.output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.output-header h2 {
+  margin: 0;
+}
+
 
 .preview-axis-control {
   display: inline-flex;

@@ -16,11 +16,20 @@ import {
   formatNumber,
   readFileText,
   downloadText,
+  downloadBlob,
+  createZipBlob,
   basenameWithoutExt,
   extname,
 } from "./utils.js";
 
 const BUNDLED_LAMP_DB_URL = new URL("./data/calibration_lamps_data_for_ThomasLab.csv", import.meta.url);
+const LASER_FILENAME_ALIASES = new Map([
+  ["488nm", "488.00"],
+  ["532nm", "532.08"],
+  ["cf514", "514.55"],
+  ["cf561", "561.32"],
+  ["cf633", "632.93"],
+]);
 
 const state = {
   lampDb: [],
@@ -58,6 +67,7 @@ const els = {
   matchTableBody: document.querySelector("#matchTable tbody"),
   downloadCalibrationResultsBtn: document.getElementById("downloadCalibrationResultsBtn"),
   downloadList: document.getElementById("downloadList"),
+  downloadAllBtn: document.getElementById("downloadAllBtn"),
   calibrationFileStatus: document.getElementById("calibrationFileStatus"),
   measurementFilesStatus: document.getElementById("measurementFilesStatus"),
   previewSpectrumModeSelect: document.getElementById("previewSpectrumModeSelect"),
@@ -70,6 +80,7 @@ init();
 async function init() {
   populateLaserOptions();
   wireEvents();
+  setupFileDropZones();
   registerServiceWorker();
   await loadBundledLampDb();
   setDefaultSuffix();
@@ -77,6 +88,7 @@ async function init() {
   updateSpectrumModeControl();
   updateCalibrationResultsButtonState();
   updateZoomButtonState();
+  updateDownloadAllButtonState();
 }
 
 function wireEvents() {
@@ -97,6 +109,7 @@ function wireEvents() {
   els.suffixInput.addEventListener("input", validateSuffix);
   els.detectPeaksBtn.addEventListener("click", detectPeaksWorkflow);
   els.runCalibrationBtn.addEventListener("click", runCalibrationWorkflow);
+  els.downloadAllBtn.addEventListener("click", downloadAllOutputs);
   els.downloadExampleNoteBtn.addEventListener("click", () => {
     setStatus("Bundled example file: `examples/20260205_Ne_example.txt`. If you upload this app to GitHub, include the `examples` folder as well.");
   });
@@ -131,15 +144,28 @@ async function handleCalibrationFileChange() {
   state.lampInference = null;
 
   const calibrationFile = els.calibrationFileInput.files?.[0];
-  if (!calibrationFile || !state.lampNames.length) return;
+  if (!calibrationFile) return;
 
-  const inferredLamp = inferLampFromFileName(calibrationFile.name, state.lampNames);
-  if (!inferredLamp) return;
+  const inferredLamp = state.lampNames.length ? inferLampFromFileName(calibrationFile.name, state.lampNames) : null;
+  const inferredLaser = inferLaserFromFileName(calibrationFile.name);
 
-  els.lampSelect.value = inferredLamp.lamp;
-  setDefaultSuffix();
-  state.lampInference = inferredLamp;
-  setStatus(`Lamp guessed from filename: ${inferredLamp.lamp}. Run peak detection to verify.`);
+  if (inferredLamp) {
+    els.lampSelect.value = inferredLamp.lamp;
+    setDefaultSuffix();
+    state.lampInference = inferredLamp;
+  }
+
+  if (inferredLaser) {
+    els.laserSelect.value = inferredLaser.optionValue;
+    els.customLaserInput.value = "";
+  }
+
+  if (inferredLamp || inferredLaser) {
+    const updates = [];
+    if (inferredLamp) updates.push(`lamp: ${inferredLamp.lamp}`);
+    if (inferredLaser) updates.push(`laser: ${inferredLaser.label}`);
+    setStatus(`Settings guessed from filename (${updates.join(", ")}). Run peak detection to verify.`);
+  }
 }
 
 function lampFamilyKey(lamp) {
@@ -165,6 +191,23 @@ function inferLampFromFileName(fileName, lampNames) {
     }
     if (candidate.sanitized && normalized.includes(candidate.sanitized)) {
       return { lamp: candidate.lamp, source: "filename" };
+    }
+  }
+
+  return null;
+}
+
+function inferLaserFromFileName(fileName) {
+  const normalized = String(fileName).toLowerCase();
+  const compact = normalized.replace(/[^a-z0-9]+/g, "");
+
+  for (const [alias, optionValue] of LASER_FILENAME_ALIASES.entries()) {
+    if (compact.includes(alias)) {
+      return {
+        optionValue,
+        label: `${optionValue} nm`,
+        source: "filename",
+      };
     }
   }
 
@@ -207,6 +250,45 @@ function inferLampFromSpectrum({ detectedPeaks, degree, xMin, xMax, fileHintLamp
     confidenceGap: second ? second.score - best.score : null,
     source: "spectrum",
   };
+}
+
+function setupFileDropZones() {
+  const dropZones = document.querySelectorAll('[data-drop-zone]');
+  dropZones.forEach((zone) => {
+    const inputId = zone.getAttribute('data-input-id');
+    const input = inputId ? document.getElementById(inputId) : null;
+    if (!(input instanceof HTMLInputElement)) return;
+
+    const setDragState = (isActive) => {
+      zone.classList.toggle('is-dragover', isActive);
+    };
+
+    ['dragenter', 'dragover'].forEach((eventName) => {
+      zone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        setDragState(true);
+      });
+    });
+
+    ['dragleave', 'dragend', 'drop'].forEach((eventName) => {
+      zone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        if (eventName === 'dragleave' && zone.contains(event.relatedTarget)) return;
+        setDragState(false);
+      });
+    });
+
+    zone.addEventListener('drop', (event) => {
+      const files = [...(event.dataTransfer?.files || [])];
+      if (!files.length) return;
+
+      const acceptedFiles = input.multiple ? files : [files[0]];
+      const transfer = new DataTransfer();
+      acceptedFiles.forEach((file) => transfer.items.add(file));
+      input.files = transfer.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  });
 }
 
 function updateFileStatus(inputEl, statusEl) {
@@ -666,8 +748,56 @@ function renderMatchTable(cal) {
   `).join("");
 }
 
-function renderDownloads(files) {
+async function buildOutputFile(file) {
+  if (!state.lastCalibration) {
+    throw new Error("Run calibration before downloading outputs.");
+  }
+
+  const text = await readFileText(file);
+  const rows = parseDelimitedTable(text);
+  const inputX = rows.map((r) => convertInputXToAbs(r.x, state.lastCalibration.inputAxisMode, state.lastCalibration.laserNm));
+  const absCalibrated = applyCalibration(state.lastCalibration.coeffs, inputX);
+  const converted = convertAbsAxis(absCalibrated, state.lastCalibration.outputMode, state.lastCalibration.laserNm);
+  const out = converted.map((x, i) => `${x}	${rows[i].y}`).join("\n") + "\n";
+  const suffix = els.suffixInput.value.trim();
+  const filename = `${basenameWithoutExt(file.name)}${suffix}${extname(file.name) || ".txt"}`;
+
+  return {
+    name: filename,
+    data: out,
+    lastModified: file.lastModified,
+  };
+}
+
+async function downloadAllOutputs() {
+  try {
+    validateBeforeCalibration();
+    setStatus("Preparing ZIP archive...");
+    els.downloadAllBtn.disabled = true;
+
+    const files = [...els.measurementFilesInput.files];
+    const outputFiles = await Promise.all(files.map((file) => buildOutputFile(file)));
+    const zipBlob = await createZipBlob(outputFiles);
+    const baseName = state.lastCalibration ? sanitizeLampName(state.lastCalibration.lamp) : "outputs";
+    downloadBlob(`${baseName}_calibrated_outputs.zip`, zipBlob);
+    setStatus(`Downloaded ${outputFiles.length} calibrated files as ZIP.`);
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "Failed to create ZIP archive.", true);
+  } finally {
+    updateDownloadAllButtonState();
+  }
+}
+
+function updateDownloadAllButtonState() {
+  const hasCalibration = Boolean(state.lastCalibration);
+  const hasFiles = Boolean(els.measurementFilesInput.files?.length);
+  els.downloadAllBtn.disabled = !(hasCalibration && hasFiles);
+}
+
+async function renderDownloads(files) {
   els.downloadList.innerHTML = "";
+  updateDownloadAllButtonState();
   if (!state.lastCalibration) return;
 
   const suffix = els.suffixInput.value.trim();
@@ -686,15 +816,13 @@ function renderDownloads(files) {
     btn.type = "button";
     btn.textContent = "Download";
     btn.addEventListener("click", async () => {
-      const text = await readFileText(file);
-      const rows = parseDelimitedTable(text);
-      const inputX = rows.map((r) => convertInputXToAbs(r.x, state.lastCalibration.inputAxisMode, state.lastCalibration.laserNm));
-      const absCalibrated = applyCalibration(state.lastCalibration.coeffs, inputX);
-      const converted = convertAbsAxis(absCalibrated, state.lastCalibration.outputMode, state.lastCalibration.laserNm);
-      const out = converted.map((x, i) => `${x}\t${rows[i].y}`).join("\n") + "\n";
-
-      const filename = `${basenameWithoutExt(file.name)}${suffix}${extname(file.name) || ".txt"}`;
-      downloadText(filename, out);
+      try {
+        const outputFile = await buildOutputFile(file);
+        downloadText(outputFile.name, outputFile.data);
+      } catch (error) {
+        console.error(error);
+        setStatus(error.message || `Failed to prepare ${file.name}.`, true);
+      }
     });
 
     item.appendChild(meta);
