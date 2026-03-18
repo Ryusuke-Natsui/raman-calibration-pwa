@@ -67,6 +67,7 @@ const els = {
   statusBox: document.getElementById("statusBox"),
   plotContainer: document.getElementById("plotContainer"),
   fitSummary: document.getElementById("fitSummary"),
+  fitWarning: document.getElementById("fitWarning"),
   matchTableBody: document.querySelector("#matchTable tbody"),
   downloadCalibrationResultsBtn: document.getElementById("downloadCalibrationResultsBtn"),
   chooseOutputFolderBtn: document.getElementById("chooseOutputFolderBtn"),
@@ -548,6 +549,7 @@ function invalidatePeakDetection(statusMessage = "") {
   els.plotContainer.innerHTML = "";
   renderSelectedPeakDetails();
   els.fitSummary.innerHTML = "";
+  els.fitWarning.textContent = "";
   els.matchTableBody.innerHTML = "";
   els.downloadList.innerHTML = "";
   updateCalibrationResultsButtonState();
@@ -787,7 +789,25 @@ function getCalibrationCenterMetrics(cal) {
   };
 }
 
+function updateFitWarning(cal) {
+  if (cal.degree !== 1) {
+    els.fitWarning.textContent = "";
+    return;
+  }
+
+  const [a] = cal.coeffs;
+  const minSlope = 0.986;
+  const maxSlope = 0.996;
+  if (a > minSlope && a < maxSlope) {
+    els.fitWarning.textContent = "";
+    return;
+  }
+
+  els.fitWarning.textContent = `Warning: linear fit slope coefficient a=${formatNumber(a, 6)} is outside ${minSlope}-${maxSlope}. The fitting may not have worked correctly.`;
+}
+
 function renderSummary(cal) {
+  updateFitWarning(cal);
   const coeffText = cal.coeffs.map((c) => formatNumber(c, 8)).join(", ");
   const center = getCalibrationCenterMetrics(cal);
   const metrics = [
