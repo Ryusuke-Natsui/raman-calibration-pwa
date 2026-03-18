@@ -8,12 +8,7 @@ export function detectPeaks(rows, options = {}) {
   const prominenceWindow = options.prominenceWindow ?? 10;
   const ySmooth = movingAverage(y, smoothingWindow);
 
-  const yMin = Math.min(...ySmooth);
-  const yMax = Math.max(...ySmooth);
-  const autoProminence = Math.max(5, 0.02 * (yMax - yMin));
-  const minProminence = Number.isFinite(options.minProminence) ? options.minProminence : autoProminence;
-
-  const peaks = [];
+  const candidatePeaks = [];
   for (let i = 1; i < ySmooth.length - 1; i += 1) {
     if (!(ySmooth[i] > ySmooth[i - 1] && ySmooth[i] >= ySmooth[i + 1])) continue;
 
@@ -24,17 +19,19 @@ export function detectPeaks(rows, options = {}) {
     const rightMin = Math.min(...ySmooth.slice(i + 1, rightEnd));
     const prominence = ySmooth[i] - Math.max(leftMin, rightMin);
 
-    if (prominence >= minProminence) {
-      peaks.push({
-        index: i,
-        x: x[i],
-        y: y[i],
-        ySmooth: ySmooth[i],
-        prominence,
-      });
-    }
+    candidatePeaks.push({
+      index: i,
+      x: x[i],
+      y: y[i],
+      ySmooth: ySmooth[i],
+      prominence,
+    });
   }
 
+  const autoProminence = computeAutoMinProminence({ rows, candidatePeaks, options, ySmooth });
+  const minProminence = Number.isFinite(options.minProminence) ? options.minProminence : autoProminence.minProminence;
+
+  const peaks = candidatePeaks.filter((peak) => peak.prominence >= minProminence);
   const refinedPeaks = refinePeakCentersQuadratic(rows, peaks, options.refineHalfWindow ?? 3);
   refinedPeaks.sort((a, b) => b.prominence - a.prominence || b.y - a.y);
 
@@ -42,6 +39,121 @@ export function detectPeaks(rows, options = {}) {
     peaks: refinedPeaks,
     ySmooth,
     minProminence,
+    autoProminence: {
+      ...autoProminence,
+      usedAuto: !Number.isFinite(options.minProminence),
+      candidatePeakCount: candidatePeaks.length,
+      selectedPeakCount: refinedPeaks.length,
+    },
+  };
+}
+
+function computeAutoMinProminence({ rows, candidatePeaks, options, ySmooth }) {
+  const yMin = Math.min(...ySmooth);
+  const yMax = Math.max(...ySmooth);
+  const fallbackMinProminence = Math.max(5, 0.02 * (yMax - yMin));
+  const expectedPeaks = estimateExpectedPeakWindow(rows, options);
+
+  if (!expectedPeaks) {
+    return {
+      mode: "fallback-range",
+      minProminence: fallbackMinProminence,
+      expectedPeakWindow: null,
+      fallbackMinProminence,
+    };
+  }
+
+  const sortedProminences = candidatePeaks
+    .map((peak) => peak.prominence)
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => b - a);
+
+  if (!sortedProminences.length) {
+    return {
+      mode: "expected-window-empty",
+      minProminence: fallbackMinProminence,
+      expectedPeakWindow: expectedPeaks,
+      fallbackMinProminence,
+    };
+  }
+
+  const minCount = Math.max(1, expectedPeaks.minCount);
+  const preferredCount = Math.max(minCount, expectedPeaks.preferredCount);
+  const maxCount = Math.max(preferredCount, expectedPeaks.maxCount);
+  const maxFeasibleCount = sortedProminences.length;
+
+  let chosenCount = null;
+  if (maxFeasibleCount >= minCount) {
+    const feasibleUpper = Math.min(maxCount, maxFeasibleCount);
+    chosenCount = Math.min(Math.max(preferredCount, minCount), feasibleUpper);
+  }
+
+  if (!chosenCount) {
+    const clamped = Math.max(1, Math.min(maxFeasibleCount, preferredCount));
+    chosenCount = clamped;
+  }
+
+  const boundaryProminence = sortedProminences[Math.max(0, chosenCount - 1)] ?? fallbackMinProminence;
+  const nextProminence = sortedProminences[chosenCount] ?? 0;
+  const midpointProminence = nextProminence > 0
+    ? (boundaryProminence + nextProminence) / 2
+    : boundaryProminence;
+  const minProminence = Math.max(midpointProminence, 0.25, fallbackMinProminence * 0.25);
+  const achievedCount = sortedProminences.filter((value) => value >= minProminence).length;
+
+  return {
+    mode: "expected-window",
+    minProminence,
+    expectedPeakWindow: expectedPeaks,
+    fallbackMinProminence,
+    chosenCount,
+    achievedCount,
+    boundaryProminence,
+  };
+}
+
+function estimateExpectedPeakWindow(rows, options) {
+  const referenceLines = Array.isArray(options.referenceLines) ? options.referenceLines : [];
+  if (!referenceLines.length || rows.length < 3) return null;
+
+  const xs = rows.map((row) => row.x).filter(Number.isFinite);
+  if (!xs.length) return null;
+
+  const xMin = Math.min(...xs);
+  const xMax = Math.max(...xs);
+  const span = xMax - xMin;
+  if (!(span > 0)) return null;
+
+  const avgStep = span / Math.max(1, xs.length - 1);
+  const prominenceWindow = Math.max(2, Math.floor(options.prominenceWindow ?? 10));
+  const edgeAllowance = Math.max(avgStep * prominenceWindow * 1.5, span * 0.02);
+
+  const linePositions = referenceLines
+    .map((line) => line?.absWavenumber)
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  if (!linePositions.length) return null;
+
+  const fullyVisibleCount = linePositions.filter((value) => value >= xMin + edgeAllowance && value <= xMax - edgeAllowance).length;
+  const maybeVisibleCount = linePositions.filter((value) => value >= xMin - edgeAllowance && value <= xMax + edgeAllowance).length;
+  const inRangeCount = linePositions.filter((value) => value >= xMin && value <= xMax).length;
+  const clippedEdgeCount = Math.max(0, maybeVisibleCount - fullyVisibleCount);
+
+  const preferredCount = fullyVisibleCount > 0 ? fullyVisibleCount : Math.max(1, inRangeCount);
+  const minCount = Math.max(1, preferredCount - Math.min(1, clippedEdgeCount));
+  const maxCount = Math.max(preferredCount, maybeVisibleCount || inRangeCount || preferredCount);
+
+  return {
+    minCount,
+    preferredCount,
+    maxCount,
+    fullyVisibleCount,
+    inRangeCount,
+    maybeVisibleCount,
+    clippedEdgeCount,
+    edgeAllowance,
+    xMin,
+    xMax,
   };
 }
 
