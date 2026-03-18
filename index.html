@@ -37,6 +37,12 @@
           <small>Automatically guessed from the calibration filename and verified from detected peak positions.</small>
         </label>
 
+        <label id="customLampField" class="field hidden">
+          <span>Custom reference peaks (abs. cm^-1)</span>
+          <textarea id="customLampPeaksInput" rows="3" placeholder="Example: 11234.5, 11302.8, 11456.1"></textarea>
+          <small>Enter the reference peak positions used for attribution/calibration. Separate with commas, spaces, tabs, or new lines.</small>
+        </label>
+
         <label class="field">
           <span>Fit model</span>
           <select id="fitDegreeSelect">

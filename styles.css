@@ -109,6 +109,23 @@ input, select {
   width: 100%;
 }
 
+
+textarea {
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #0a1325;
+  color: var(--text);
+  padding: 0.78rem 0.9rem;
+  font: inherit;
+  width: 100%;
+  resize: vertical;
+  min-height: 5.5rem;
+}
+
+.hidden {
+  display: none;
+}
+
 input[type="file"] {
   padding: 0.55rem;
 }

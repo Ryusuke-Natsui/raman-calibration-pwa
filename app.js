@@ -46,6 +46,8 @@ const els = {
   lampDbStatus: document.getElementById("lampDbStatus"),
   reloadLampDbBtn: document.getElementById("reloadLampDbBtn"),
   lampSelect: document.getElementById("lampSelect"),
+  customLampField: document.getElementById("customLampField"),
+  customLampPeaksInput: document.getElementById("customLampPeaksInput"),
   fitDegreeSelect: document.getElementById("fitDegreeSelect"),
   laserSelect: document.getElementById("laserSelect"),
   customLaserInput: document.getElementById("customLaserInput"),
@@ -86,6 +88,7 @@ async function init() {
   registerServiceWorker();
   await loadBundledLampDb();
   setDefaultSuffix();
+  updateCustomLampControls();
   updateCalibrationButtonState();
   updateSpectrumModeControl();
   updateCalibrationResultsButtonState();
@@ -97,10 +100,20 @@ async function init() {
 function wireEvents() {
   els.reloadLampDbBtn.addEventListener("click", loadBundledLampDb);
   els.lampSelect.addEventListener("change", () => {
+    updateCustomLampControls();
     setDefaultSuffix();
     invalidatePeakDetection("Settings changed. Run calibration again.");
   });
-  els.fitDegreeSelect.addEventListener("change", () => invalidatePeakDetection("Settings changed. Run calibration again."));
+  els.customLampPeaksInput.addEventListener("input", () => {
+    validateCustomLampPeaks();
+    updateCalibrationButtonState();
+    invalidatePeakDetection("Custom lamp peaks changed. Run calibration again.");
+  });
+  els.fitDegreeSelect.addEventListener("change", () => {
+    validateCustomLampPeaks();
+    updateCalibrationButtonState();
+    invalidatePeakDetection("Settings changed. Run calibration again.");
+  });
   els.laserSelect.addEventListener("change", () => invalidatePeakDetection("Settings changed. Run calibration again."));
   els.customLaserInput.addEventListener("input", () => invalidatePeakDetection("Settings changed. Run calibration again."));
   els.inputAxisModeSelect.addEventListener("change", () => invalidatePeakDetection("Settings changed. Run calibration again."));
@@ -187,6 +200,7 @@ function inferLampFromFileName(fileName, lampNames) {
   const tokens = normalized.split(/[^a-z0-9]+/).filter(Boolean);
 
   const candidates = lampNames
+    .filter((lamp) => lamp !== "Custom")
     .map((lamp) => ({
       lamp,
       family: lampFamilyKey(lamp),
@@ -226,8 +240,8 @@ function inferLaserFromFileName(fileName) {
 function inferLampFromSpectrum({ detectedPeaks, degree, xMin, xMax, fileHintLamp = null }) {
   const candidates = [];
 
-  for (const lamp of state.lampNames) {
-    const referenceLines = state.lampDb.filter((row) => row.lamp === lamp);
+  for (const lamp of state.lampNames.filter((name) => name !== "Custom")) {
+    const referenceLines = getReferenceLinesForLamp(lamp);
     try {
       const match = autoMatchPeaks({
         detectedPeaks,
@@ -378,7 +392,7 @@ async function loadBundledLampDb() {
 
 function loadLampDbFromText(text, message) {
   state.lampDb = parseLampCsv(text);
-  state.lampNames = [...new Set(state.lampDb.map((row) => row.lamp))];
+  state.lampNames = [...new Set(state.lampDb.map((row) => row.lamp)), "Custom"];
   els.lampSelect.innerHTML = "";
 
   for (const lamp of state.lampNames) {
@@ -392,8 +406,48 @@ function loadLampDbFromText(text, message) {
   if (neOption) els.lampSelect.value = neOption;
 
   els.lampDbStatus.textContent = `${message} / ${state.lampDb.length} lines / lamps: ${state.lampNames.join(", ")}`;
+  updateCustomLampControls();
   setDefaultSuffix();
   setStatus("Lamp reference table is ready.");
+}
+
+function updateCustomLampControls() {
+  const isCustom = els.lampSelect.value === "Custom";
+  els.customLampField.classList.toggle("hidden", !isCustom);
+  validateCustomLampPeaks();
+}
+
+function parseCustomLampPeaks() {
+  const peaks = String(els.customLampPeaksInput.value || "")
+    .split(/[\s,;]+/)
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isFinite(value));
+
+  return [...new Set(peaks)].sort((a, b) => a - b);
+}
+
+function validateCustomLampPeaks() {
+  if (els.lampSelect.value !== "Custom") {
+    els.customLampPeaksInput.setCustomValidity("");
+    return true;
+  }
+
+  const peaks = parseCustomLampPeaks();
+  const minimumRequired = Number(els.fitDegreeSelect.value) + 1;
+  const isValid = peaks.length >= minimumRequired;
+  els.customLampPeaksInput.setCustomValidity(isValid ? "" : `Enter at least ${minimumRequired} custom peak positions.`);
+  return isValid;
+}
+
+function getReferenceLinesForLamp(lamp) {
+  if (lamp === "Custom") {
+    return parseCustomLampPeaks().map((absWavenumber) => ({
+      lamp: "Custom",
+      absWavenumber,
+      wavelengthNm: NaN,
+    }));
+  }
+  return state.lampDb.filter((row) => row.lamp === lamp);
 }
 
 function getSelectedLaserNm() {
@@ -478,7 +532,8 @@ async function writeTextToDirectory(directoryHandle, filename, text) {
 function updateCalibrationButtonState() {
   const hasCalibrationFile = Boolean(els.calibrationFileInput.files?.length);
   const hasMeasurementFiles = Boolean(els.measurementFilesInput.files?.length);
-  els.runCalibrationBtn.disabled = !(hasCalibrationFile && hasMeasurementFiles && validateSuffix());
+  const hasValidCustomLamp = validateCustomLampPeaks();
+  els.runCalibrationBtn.disabled = !(hasCalibrationFile && hasMeasurementFiles && validateSuffix() && hasValidCustomLamp);
 }
 
 function invalidatePeakDetection(statusMessage = "") {
@@ -526,14 +581,16 @@ async function runPeakDetection() {
     const peakResult = detectPeaks(calibrationRowsForFit, detectOptions);
     const xValues = calibrationRowsForFit.map((r) => r.x);
 
-    const inferredLamp = inferLampFromSpectrum({
-      detectedPeaks: peakResult.peaks,
-      degree,
-      xMin: Math.min(...xValues),
-      xMax: Math.max(...xValues),
-      fileHintLamp,
-    });
-    const lamp = inferredLamp?.lamp || fileHintLamp;
+    const inferredLamp = selectedLamp === "Custom"
+      ? null
+      : inferLampFromSpectrum({
+        detectedPeaks: peakResult.peaks,
+        degree,
+        xMin: Math.min(...xValues),
+        xMax: Math.max(...xValues),
+        fileHintLamp,
+      });
+    const lamp = selectedLamp === "Custom" ? "Custom" : (inferredLamp?.lamp || fileHintLamp);
     if (lamp) {
       els.lampSelect.value = lamp;
       setDefaultSuffix();
@@ -585,7 +642,7 @@ async function runCalibrationWorkflow() {
     const peakDetectionSummary = await runPeakDetection();
     const { degree, lamp, laserNm, inputAxisMode, outputMode } = state.peakDetection;
 
-    const referenceLines = state.lampDb.filter((row) => row.lamp === lamp);
+    const referenceLines = getReferenceLinesForLamp(lamp);
     const resolvedCalibration = resolveCalibrationMatch(state.peakDetection, referenceLines);
     const { match, calibrationRowsForFit, peakResult, xMin, xMax, inputAxisMode: resolvedInputAxisMode, fallbackReason } = resolvedCalibration;
 
@@ -646,12 +703,14 @@ async function runCalibrationWorkflow() {
 function validateBeforePeakDetection() {
   if (!state.lampDb.length) throw new Error("Please load a lamp reference table.");
   if (!els.calibrationFileInput.files?.length) throw new Error("Please select a calibration text file.");
+  if (!validateCustomLampPeaks()) throw new Error(els.customLampPeaksInput.validationMessage);
 }
 
 function validateBeforeCalibration() {
   if (!els.calibrationFileInput.files?.length) throw new Error("Please select a calibration text file.");
   if (!els.measurementFilesInput.files?.length) throw new Error("Please select one or more measurement files.");
   if (!validateSuffix()) throw new Error("Please fix the output filename suffix.");
+  if (!validateCustomLampPeaks()) throw new Error(els.customLampPeaksInput.validationMessage);
 }
 
 
@@ -773,12 +832,16 @@ function buildCalibrationResultsText(cal) {
       i + 1,
       formatNumber(peak.x, 6),
       formatNumber(cal.referenceLines[i].absWavenumber, 6),
-      formatNumber(cal.referenceLines[i].wavelengthNm, 6),
+      formatReferenceWavelength(cal.referenceLines[i].wavelengthNm, 6),
       formatNumber(cal.residuals[i], 6),
     ].join('\t')),
     '',
   ];
   return lines.join('\n');
+}
+
+function formatReferenceWavelength(value, digits = 4) {
+  return Number.isFinite(value) ? formatNumber(value, digits) : "-";
 }
 
 function updateCalibrationResultsButtonState() {
@@ -811,7 +874,7 @@ function renderMatchTable(cal) {
       <td>${i + 1}</td>
       <td>${formatNumber(peak.x, 4)}</td>
       <td>${formatNumber(cal.referenceLines[i].absWavenumber, 4)}</td>
-      <td>${formatNumber(cal.referenceLines[i].wavelengthNm, 4)}</td>
+      <td>${formatReferenceWavelength(cal.referenceLines[i].wavelengthNm, 4)}</td>
       <td>${formatNumber(cal.residuals[i], 4)}</td>
     </tr>
   `).join("");
