@@ -59,7 +59,6 @@ const els = {
   measurementFilesInput: document.getElementById("measurementFilesInput"),
   suffixInput: document.getElementById("suffixInput"),
   suffixWarning: document.getElementById("suffixWarning"),
-  detectPeaksBtn: document.getElementById("detectPeaksBtn"),
   runCalibrationBtn: document.getElementById("runCalibrationBtn"),
   downloadExampleNoteBtn: document.getElementById("downloadExampleNoteBtn"),
   statusBox: document.getElementById("statusBox"),
@@ -99,19 +98,21 @@ function wireEvents() {
   els.reloadLampDbBtn.addEventListener("click", loadBundledLampDb);
   els.lampSelect.addEventListener("change", () => {
     setDefaultSuffix();
-    invalidatePeakDetection("Settings changed. Run peak detection again.");
+    invalidatePeakDetection("Settings changed. Run calibration again.");
   });
-  els.fitDegreeSelect.addEventListener("change", () => invalidatePeakDetection("Settings changed. Run peak detection again."));
-  els.laserSelect.addEventListener("change", () => invalidatePeakDetection("Settings changed. Run peak detection again."));
-  els.customLaserInput.addEventListener("input", () => invalidatePeakDetection("Settings changed. Run peak detection again."));
-  els.inputAxisModeSelect.addEventListener("change", () => invalidatePeakDetection("Settings changed. Run peak detection again."));
-  els.smoothingWindowInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run peak detection again."));
-  els.prominenceWindowInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run peak detection again."));
-  els.minProminenceInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run peak detection again."));
-  els.refineHalfWindowInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run peak detection again."));
+  els.fitDegreeSelect.addEventListener("change", () => invalidatePeakDetection("Settings changed. Run calibration again."));
+  els.laserSelect.addEventListener("change", () => invalidatePeakDetection("Settings changed. Run calibration again."));
+  els.customLaserInput.addEventListener("input", () => invalidatePeakDetection("Settings changed. Run calibration again."));
+  els.inputAxisModeSelect.addEventListener("change", () => invalidatePeakDetection("Settings changed. Run calibration again."));
+  els.smoothingWindowInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run calibration again."));
+  els.prominenceWindowInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run calibration again."));
+  els.minProminenceInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run calibration again."));
+  els.refineHalfWindowInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run calibration again."));
   els.calibrationFileInput.addEventListener("change", handleCalibrationFileChange);
-  els.suffixInput.addEventListener("input", validateSuffix);
-  els.detectPeaksBtn.addEventListener("click", detectPeaksWorkflow);
+  els.suffixInput.addEventListener("input", () => {
+    validateSuffix();
+    updateCalibrationButtonState();
+  });
   els.runCalibrationBtn.addEventListener("click", runCalibrationWorkflow);
   els.downloadAllBtn.addEventListener("click", downloadAllOutputs);
   els.chooseOutputFolderBtn?.addEventListener("click", chooseOutputFolder);
@@ -119,7 +120,10 @@ function wireEvents() {
     setStatus("Bundled example file: `examples/20260205_Ne_example.txt`. If you upload this app to GitHub, include the `examples` folder as well.");
   });
   els.downloadCalibrationResultsBtn.addEventListener("click", downloadCalibrationResults);
-  els.measurementFilesInput.addEventListener("change", () => updateFileStatus(els.measurementFilesInput, els.measurementFilesStatus));
+  els.measurementFilesInput.addEventListener("change", () => {
+    updateFileStatus(els.measurementFilesInput, els.measurementFilesStatus);
+    updateCalibrationButtonState();
+  });
   els.previewSpectrumModeSelect.addEventListener("change", () => {
     if (!state.preview) return;
     state.preview.zoomRange = null;
@@ -145,7 +149,7 @@ function wireEvents() {
 
 async function handleCalibrationFileChange() {
   updateFileStatus(els.calibrationFileInput, els.calibrationFileStatus);
-  invalidatePeakDetection("Calibration file changed. Run peak detection again.");
+  invalidatePeakDetection("Calibration file changed. Run calibration again.");
   state.lampInference = null;
 
   const calibrationFile = els.calibrationFileInput.files?.[0];
@@ -169,7 +173,7 @@ async function handleCalibrationFileChange() {
     const updates = [];
     if (inferredLamp) updates.push(`lamp: ${inferredLamp.lamp}`);
     if (inferredLaser) updates.push(`laser: ${inferredLaser.label}`);
-    setStatus(`Settings guessed from filename (${updates.join(", ")}). Run peak detection to verify.`);
+    setStatus(`Settings guessed from filename (${updates.join(", ")}). Run calibration to verify.`);
   }
 }
 
@@ -472,7 +476,9 @@ async function writeTextToDirectory(directoryHandle, filename, text) {
 }
 
 function updateCalibrationButtonState() {
-  els.runCalibrationBtn.disabled = !state.peakDetection;
+  const hasCalibrationFile = Boolean(els.calibrationFileInput.files?.length);
+  const hasMeasurementFiles = Boolean(els.measurementFilesInput.files?.length);
+  els.runCalibrationBtn.disabled = !(hasCalibrationFile && hasMeasurementFiles && validateSuffix());
 }
 
 function invalidatePeakDetection(statusMessage = "") {
@@ -491,7 +497,7 @@ function invalidatePeakDetection(statusMessage = "") {
   if (statusMessage) setStatus(statusMessage);
 }
 
-async function detectPeaksWorkflow() {
+async function runPeakDetection() {
   try {
     validateBeforePeakDetection();
     setStatus("Detecting peaks...");
@@ -559,24 +565,24 @@ async function detectPeaksWorkflow() {
     };
     renderPreview();
 
-    updateCalibrationButtonState();
     updateSpectrumModeControl();
     const lampMessage = inferredLamp
       ? `Auto-selected lamp: ${lamp} (matched peaks: ${inferredLamp.matchedPeakCount}, score: ${formatNumber(inferredLamp.rawScore, 3)})`
       : `Using lamp: ${lamp}`;
-    setStatus(`Peak detection finished: ${peakResult.peaks.length} peaks. ${lampMessage}. Now run calibration.`);
+    return { peakCount: peakResult.peaks.length, lampMessage };
   } catch (error) {
     console.error(error);
-    setStatus(error.message || "Peak detection failed.", true);
+    throw error;
   }
 }
 
 async function runCalibrationWorkflow() {
   try {
     validateBeforeCalibration();
-    setStatus("Running calibration...");
+    setStatus("Running calibration (including peak detection)...");
 
     const measurementFiles = [...els.measurementFilesInput.files];
+    const peakDetectionSummary = await runPeakDetection();
     const { degree, lamp, laserNm, inputAxisMode, outputMode } = state.peakDetection;
 
     const referenceLines = state.lampDb.filter((row) => row.lamp === lamp);
@@ -630,7 +636,7 @@ async function runCalibrationWorkflow() {
     updateCalibrationResultsButtonState();
 
     const fallbackNote = fallbackReason ? ` / auto-switched input axis to ${inputAxisLabel(resolvedInputAxisMode)}` : "";
-    setStatus(`Done: ${lamp} / degree ${degree} / RMS = ${formatNumber(match.rmsError, 4)} cm^-1${fallbackNote}`);
+    setStatus(`Done: ${lamp} / degree ${degree} / ${peakDetectionSummary.peakCount} peaks / ${peakDetectionSummary.lampMessage} / RMS = ${formatNumber(match.rmsError, 4)} cm^-1${fallbackNote}`);
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Processing failed.", true);
@@ -643,7 +649,7 @@ function validateBeforePeakDetection() {
 }
 
 function validateBeforeCalibration() {
-  if (!state.peakDetection) throw new Error("Please run peak detection first.");
+  if (!els.calibrationFileInput.files?.length) throw new Error("Please select a calibration text file.");
   if (!els.measurementFilesInput.files?.length) throw new Error("Please select one or more measurement files.");
   if (!validateSuffix()) throw new Error("Please fix the output filename suffix.");
 }
