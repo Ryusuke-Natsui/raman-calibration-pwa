@@ -58,6 +58,7 @@ const els = {
   prominenceWindowInput: document.getElementById("prominenceWindowInput"),
   minProminenceInput: document.getElementById("minProminenceInput"),
   refineHalfWindowInput: document.getElementById("refineHalfWindowInput"),
+  autoProminenceHint: document.getElementById("autoProminenceHint"),
   calibrationFileInput: document.getElementById("calibrationFileInput"),
   measurementFilesInput: document.getElementById("measurementFilesInput"),
   suffixInput: document.getElementById("suffixInput"),
@@ -549,7 +550,7 @@ function invalidatePeakDetection(statusMessage = "") {
   els.plotContainer.innerHTML = "";
   renderSelectedPeakDetails();
   els.fitSummary.innerHTML = "";
-  els.fitWarning.textContent = "";
+  renderAutoProminenceHint(null);
   els.matchTableBody.innerHTML = "";
   els.downloadList.innerHTML = "";
   updateCalibrationResultsButtonState();
@@ -584,7 +585,13 @@ async function runPeakDetection() {
     };
 
     const calibrationRowsForFit = convertRowsToAbsInput(calibrationRows, inputAxisMode, laserNm);
-    const peakResult = detectPeaks(calibrationRowsForFit, detectOptions);
+    const referenceLinesForProminence = selectedLamp === "Custom"
+      ? getReferenceLinesForLamp("Custom")
+      : getReferenceLinesForLamp(fileHintLamp || selectedLamp);
+    const peakResult = detectPeaks(calibrationRowsForFit, {
+      ...detectOptions,
+      referenceLines: referenceLinesForProminence,
+    });
     const xValues = calibrationRowsForFit.map((r) => r.x);
 
     const inferredLamp = selectedLamp === "Custom"
@@ -612,7 +619,10 @@ async function runPeakDetection() {
       calibrationRows,
       calibrationRowsForFit,
       peakResult,
-      detectOptions,
+      detectOptions: {
+        ...detectOptions,
+        referenceLines: referenceLinesForProminence,
+      },
       xMin: Math.min(...xValues),
       xMax: Math.max(...xValues),
     };
@@ -627,6 +637,7 @@ async function runPeakDetection() {
       zoomRange: null,
     };
     renderPreview();
+    renderAutoProminenceHint(peakResult);
 
     updateSpectrumModeControl();
     const lampMessage = inferredLamp
@@ -722,7 +733,10 @@ function validateBeforeCalibration() {
 
 function buildCalibrationCandidate(peakDetection, inputAxisMode) {
   const calibrationRowsForFit = convertRowsToAbsInput(peakDetection.calibrationRows, inputAxisMode, peakDetection.laserNm);
-  const peakResult = detectPeaks(calibrationRowsForFit, peakDetection.detectOptions);
+  const peakResult = detectPeaks(calibrationRowsForFit, {
+    ...peakDetection.detectOptions,
+    referenceLines: getReferenceLinesForLamp(peakDetection.lamp),
+  });
   const xValues = calibrationRowsForFit.map((row) => row.x);
   return {
     inputAxisMode,
@@ -776,6 +790,33 @@ function resolveCalibrationMatch(peakDetection, referenceLines) {
   }
 }
 
+function renderAutoProminenceHint(peakResult) {
+  const auto = peakResult?.autoProminence;
+  if (!els.autoProminenceHint) return;
+  if (!peakResult) {
+    els.autoProminenceHint.textContent = "If empty, the app chooses a value from the expected number of visible lamp peaks and the number of detected peaks, while allowing edge-clipped peaks.";
+    return;
+  }
+  if (!auto?.usedAuto) {
+    els.autoProminenceHint.textContent = "Manual minimum prominence is used.";
+    return;
+  }
+
+  const expected = auto.expectedPeakWindow;
+  if (!expected) {
+    els.autoProminenceHint.textContent = `Auto minimum prominence = ${formatNumber(peakResult.minProminence, 2)} (fallback because expected peak count could not be estimated).`;
+    return;
+  }
+
+  const rangeText = expected.minCount === expected.maxCount
+    ? String(expected.preferredCount)
+    : `${expected.minCount}-${expected.maxCount}`;
+  const clippedNote = expected.clippedEdgeCount > 0
+    ? ` / edge-clipped candidates ≈ ${expected.clippedEdgeCount}`
+    : "";
+  els.autoProminenceHint.textContent = `Auto minimum prominence = ${formatNumber(peakResult.minProminence, 2)} / detected ${peakResult.peaks.length} peaks / expected visible peaks ${rangeText} (core target ${expected.preferredCount})${clippedNote}.`;
+}
+
 function getCalibrationCenterMetrics(cal) {
   const calibratedAbs = applyCalibration(cal.coeffs, cal.calibrationRows.map((row) => row.x));
   const minAbs = Math.min(...calibratedAbs);
@@ -810,6 +851,10 @@ function renderSummary(cal) {
   updateFitWarning(cal);
   const coeffText = cal.coeffs.map((c) => formatNumber(c, 8)).join(", ");
   const center = getCalibrationCenterMetrics(cal);
+  const autoProminenceDetails = cal.peakResult.autoProminence;
+  const autoProminenceValue = autoProminenceDetails?.usedAuto
+    ? `${formatNumber(cal.peakResult.minProminence, 3)} (detected ${cal.peakResult.peaks.length}, expected ${formatExpectedPeakWindow(autoProminenceDetails.expectedPeakWindow)})`
+    : `${formatNumber(cal.peakResult.minProminence, 3)} (manual)`;
   const metrics = [
     ["Lamp", cal.lamp],
     ["Model", `${cal.degree} order`],
@@ -822,6 +867,7 @@ function renderSummary(cal) {
     ["Center Wavelength", `${formatNumber(center.centerWavelengthNm, 4)} nm`],
     ["Coefficients", coeffText],
     ["Detected peaks", String(cal.peakResult.peaks.length)],
+    ["Minimum prominence", autoProminenceValue],
   ];
 
   els.fitSummary.innerHTML = metrics.map(([label, value]) => `
@@ -843,6 +889,9 @@ function buildCalibrationResultsText(cal) {
     `Output_axis	${outputAxisLabel(cal.outputMode)}`,
     `Matched_peaks	${cal.matchedPeaks.length}`,
     `Detected_peaks	${cal.peakResult.peaks.length}`,
+    `Minimum_prominence	${formatNumber(cal.peakResult.minProminence, 6)}`,
+    `Minimum_prominence_mode	${cal.peakResult.autoProminence?.usedAuto ? 'auto' : 'manual'}`,
+    `Expected_visible_peaks	${formatExpectedPeakWindow(cal.peakResult.autoProminence?.expectedPeakWindow)}`,
     `RMS_cm^-1	${formatNumber(cal.rmsError, 6)}`,
     `Center_abs_wavenumber_cm^-1	${formatNumber(center.centerAbs, 6)}`,
     `Center_wavelength_nm	${formatNumber(center.centerWavelengthNm, 6)}`,
@@ -862,6 +911,12 @@ function buildCalibrationResultsText(cal) {
     '',
   ];
   return lines.join('\n');
+}
+
+function formatExpectedPeakWindow(expected) {
+  if (!expected) return "n/a";
+  if (expected.minCount === expected.maxCount) return String(expected.preferredCount);
+  return `${expected.minCount}-${expected.maxCount} (core ${expected.preferredCount})`;
 }
 
 function formatReferenceWavelength(value, digits = 4) {
