@@ -20,6 +20,7 @@ PWA for calibrating Raman spectra measured with a triple monochromator.
   - absolute wavenumber
   - wavelength
 - appends a configurable suffix to output filenames
+- in Chromium-based browsers, can write calibrated files directly into a user-selected output folder (e.g. the same folder as the input files)
 - works as a static site and can be published on GitHub Pages
 
 ## Expected input formats

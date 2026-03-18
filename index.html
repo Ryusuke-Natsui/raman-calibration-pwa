@@ -183,8 +183,12 @@
     <section class="card">
       <div class="output-header">
         <h2>5. Output</h2>
-        <button id="downloadAllBtn" type="button" disabled>Download all (.zip)</button>
+        <div class="inline">
+          <button id="chooseOutputFolderBtn" type="button">Choose output folder</button>
+          <button id="downloadAllBtn" type="button" disabled>Download all (.zip)</button>
+        </div>
       </div>
+      <p id="outputFolderStatus" class="muted">Optional: choose an output folder to save files there directly.</p>
       <div id="downloadList" class="downloads"></div>
     </section>
   </main>
