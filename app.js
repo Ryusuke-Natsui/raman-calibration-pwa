@@ -16,6 +16,8 @@ import {
   formatNumber,
   readFileText,
   downloadText,
+  downloadBlob,
+  createZipBlob,
   basenameWithoutExt,
   extname,
 } from "./utils.js";
@@ -57,6 +59,7 @@ const els = {
   fitSummary: document.getElementById("fitSummary"),
   matchTableBody: document.querySelector("#matchTable tbody"),
   downloadList: document.getElementById("downloadList"),
+  downloadAllBtn: document.getElementById("downloadAllBtn"),
   calibrationFileStatus: document.getElementById("calibrationFileStatus"),
   measurementFilesStatus: document.getElementById("measurementFilesStatus"),
   previewSpectrumModeSelect: document.getElementById("previewSpectrumModeSelect"),
@@ -75,6 +78,7 @@ async function init() {
   updateCalibrationButtonState();
   updateSpectrumModeControl();
   updateZoomButtonState();
+  updateDownloadAllButtonState();
 }
 
 function wireEvents() {
@@ -95,10 +99,14 @@ function wireEvents() {
   els.suffixInput.addEventListener("input", validateSuffix);
   els.detectPeaksBtn.addEventListener("click", detectPeaksWorkflow);
   els.runCalibrationBtn.addEventListener("click", runCalibrationWorkflow);
+  els.downloadAllBtn.addEventListener("click", downloadAllOutputs);
   els.downloadExampleNoteBtn.addEventListener("click", () => {
     setStatus("Bundled example file: `examples/20260205_Ne_example.txt`. If you upload this app to GitHub, include the `examples` folder as well.");
   });
-  els.measurementFilesInput.addEventListener("change", () => updateFileStatus(els.measurementFilesInput, els.measurementFilesStatus));
+  els.measurementFilesInput.addEventListener("change", () => {
+    updateFileStatus(els.measurementFilesInput, els.measurementFilesStatus);
+    updateDownloadAllButtonState();
+  });
   els.previewSpectrumModeSelect.addEventListener("change", () => {
     if (!state.preview) return;
     state.preview.zoomRange = null;
@@ -349,6 +357,7 @@ function invalidatePeakDetection(statusMessage = "") {
   els.fitSummary.innerHTML = "";
   els.matchTableBody.innerHTML = "";
   els.downloadList.innerHTML = "";
+  updateDownloadAllButtonState();
   updateSpectrumModeControl();
   updateZoomButtonState();
   if (statusMessage) setStatus(statusMessage);
@@ -489,7 +498,7 @@ async function runCalibrationWorkflow() {
 
     renderSummary(state.lastCalibration);
     renderMatchTable(state.lastCalibration);
-    renderDownloads(measurementFiles);
+    await renderDownloads(measurementFiles);
 
     const fallbackNote = fallbackReason ? ` / auto-switched input axis to ${inputAxisLabel(resolvedInputAxisMode)}` : "";
     setStatus(`Done: ${lamp} / degree ${degree} / RMS = ${formatNumber(match.rmsError, 4)} cm^-1${fallbackNote}`);
@@ -601,8 +610,56 @@ function renderMatchTable(cal) {
   `).join("");
 }
 
-function renderDownloads(files) {
+async function buildOutputFile(file) {
+  if (!state.lastCalibration) {
+    throw new Error("Run calibration before downloading outputs.");
+  }
+
+  const text = await readFileText(file);
+  const rows = parseDelimitedTable(text);
+  const inputX = rows.map((r) => convertInputXToAbs(r.x, state.lastCalibration.inputAxisMode, state.lastCalibration.laserNm));
+  const absCalibrated = applyCalibration(state.lastCalibration.coeffs, inputX);
+  const converted = convertAbsAxis(absCalibrated, state.lastCalibration.outputMode, state.lastCalibration.laserNm);
+  const out = converted.map((x, i) => `${x}	${rows[i].y}`).join("\n") + "\n";
+  const suffix = els.suffixInput.value.trim();
+  const filename = `${basenameWithoutExt(file.name)}${suffix}${extname(file.name) || ".txt"}`;
+
+  return {
+    name: filename,
+    data: out,
+    lastModified: file.lastModified,
+  };
+}
+
+async function downloadAllOutputs() {
+  try {
+    validateBeforeCalibration();
+    setStatus("Preparing ZIP archive...");
+    els.downloadAllBtn.disabled = true;
+
+    const files = [...els.measurementFilesInput.files];
+    const outputFiles = await Promise.all(files.map((file) => buildOutputFile(file)));
+    const zipBlob = await createZipBlob(outputFiles);
+    const baseName = state.lastCalibration ? sanitizeLampName(state.lastCalibration.lamp) : "outputs";
+    downloadBlob(`${baseName}_calibrated_outputs.zip`, zipBlob);
+    setStatus(`Downloaded ${outputFiles.length} calibrated files as ZIP.`);
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "Failed to create ZIP archive.", true);
+  } finally {
+    updateDownloadAllButtonState();
+  }
+}
+
+function updateDownloadAllButtonState() {
+  const hasCalibration = Boolean(state.lastCalibration);
+  const hasFiles = Boolean(els.measurementFilesInput.files?.length);
+  els.downloadAllBtn.disabled = !(hasCalibration && hasFiles);
+}
+
+async function renderDownloads(files) {
   els.downloadList.innerHTML = "";
+  updateDownloadAllButtonState();
   if (!state.lastCalibration) return;
 
   const suffix = els.suffixInput.value.trim();
@@ -621,15 +678,13 @@ function renderDownloads(files) {
     btn.type = "button";
     btn.textContent = "Download";
     btn.addEventListener("click", async () => {
-      const text = await readFileText(file);
-      const rows = parseDelimitedTable(text);
-      const inputX = rows.map((r) => convertInputXToAbs(r.x, state.lastCalibration.inputAxisMode, state.lastCalibration.laserNm));
-      const absCalibrated = applyCalibration(state.lastCalibration.coeffs, inputX);
-      const converted = convertAbsAxis(absCalibrated, state.lastCalibration.outputMode, state.lastCalibration.laserNm);
-      const out = converted.map((x, i) => `${x}\t${rows[i].y}`).join("\n") + "\n";
-
-      const filename = `${basenameWithoutExt(file.name)}${suffix}${extname(file.name) || ".txt"}`;
-      downloadText(filename, out);
+      try {
+        const outputFile = await buildOutputFile(file);
+        downloadText(outputFile.name, outputFile.data);
+      } catch (error) {
+        console.error(error);
+        setStatus(error.message || `Failed to prepare ${file.name}.`, true);
+      }
     });
 
     item.appendChild(meta);

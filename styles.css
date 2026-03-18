@@ -217,6 +217,19 @@ small, .muted {
   margin: 0;
 }
 
+.output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.output-header h2 {
+  margin: 0;
+}
+
+
 .preview-axis-control {
   display: inline-flex;
   align-items: center;
