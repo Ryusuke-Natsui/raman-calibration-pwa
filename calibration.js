@@ -74,8 +74,12 @@ export function derivativeIsPositive(coeffs, xMin, xMax) {
   return d1 > 0 && d2 > 0;
 }
 
+function getPeakCenterX(peak) {
+  return Number.isFinite(peak?.centerX) ? peak.centerX : peak.x;
+}
+
 export function fitCalibrationFromPeaks(measuredPeaks, referenceLines, degree) {
-  const xMeasured = measuredPeaks.map((p) => p.x);
+  const xMeasured = measuredPeaks.map((p) => getPeakCenterX(p));
   const yReference = referenceLines.map((r) => r.absWavenumber);
   const coeffs = fitPolynomial(xMeasured, yReference, degree);
   const residuals = xMeasured.map((x, i) => evaluatePolynomial(coeffs, x) - yReference[i]);
