@@ -831,10 +831,10 @@ function buildCalibrationResultsText(cal) {
     `Coefficients	${cal.coeffs.map((c) => formatNumber(c, 10)).join(', ')}`,
     '',
     '# Matched peaks',
-    'Index	Measured_x	Reference_abs_wavenumber_cm^-1	Reference_wavelength_nm	Residual_cm^-1',
+    'Index	Peak_center_x	Reference_abs_wavenumber_cm^-1	Reference_wavelength_nm	Residual_cm^-1',
     ...cal.matchedPeaks.map((peak, i) => [
       i + 1,
-      formatNumber(peak.x, 6),
+      formatNumber(peak.centerX ?? peak.x, 6),
       formatNumber(cal.referenceLines[i].absWavenumber, 6),
       formatReferenceWavelength(cal.referenceLines[i].wavelengthNm, 6),
       formatNumber(cal.residuals[i], 6),
@@ -876,7 +876,7 @@ function renderMatchTable(cal) {
   els.matchTableBody.innerHTML = cal.matchedPeaks.map((peak, i) => `
     <tr>
       <td>${i + 1}</td>
-      <td>${formatNumber(peak.x, 4)}</td>
+      <td>${formatNumber(peak.centerX ?? peak.x, 4)}</td>
       <td>${formatNumber(cal.referenceLines[i].absWavenumber, 4)}</td>
       <td>${formatReferenceWavelength(cal.referenceLines[i].wavelengthNm, 4)}</td>
       <td>${formatNumber(cal.residuals[i], 4)}</td>
@@ -992,12 +992,14 @@ function getSelectedPeakData() {
     ? (x) => evaluatePolynomial(state.preview.calibrationCoeffs, x)
     : (x) => x;
 
-  const transformedX = xTransformer(peak.x);
+  const transformedX = xTransformer(peak.centerX ?? peak.x);
+  const transformedRawX = Number.isFinite(peak.xRaw) ? xTransformer(peak.xRaw) : null;
   return {
     peak,
     spectrumMode,
     previewMode,
     xValue: convertAbsForPreview(transformedX, previewMode, state.preview.laserNm),
+    rawXValue: Number.isFinite(transformedRawX) ? convertAbsForPreview(transformedRawX, previewMode, state.preview.laserNm) : null,
   };
 }
 
@@ -1009,12 +1011,13 @@ function renderSelectedPeakDetails() {
     return;
   }
 
-  const { peak, spectrumMode, previewMode, xValue } = selected;
+  const { peak, spectrumMode, previewMode, xValue, rawXValue } = selected;
   const modeLabel = spectrumMode === "calibrated" ? "補正後" : "補正前";
   els.selectedPeakDetails.innerHTML = `
     <strong>選択中のピーク中心</strong>
-    <span>${escapeHtml(previewAxisLabel(previewMode))}: <code>${formatNumber(xValue, 6)}</code></span>
-    <span>Intensity: <code>${formatNumber(peak.y, 3)}</code></span>
+    <span>${escapeHtml(previewAxisLabel(previewMode))}: <code>${formatNumber(xValue, 6)}</code> <span class="muted">(peak-center fit)</span></span>
+    ${Number.isFinite(rawXValue) ? `<span class="muted">Raw measured point: <code>${formatNumber(rawXValue, 6)}</code></span>` : ''}
+    <span>Intensity: <code>${formatNumber(peak.centerY ?? peak.y, 3)}</code></span>
     <span>Prominence: <code>${formatNumber(peak.prominence, 3)}</code></span>
     <span class="muted">表示モード: ${modeLabel}</span>
   `;

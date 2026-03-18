@@ -81,6 +81,8 @@ function refinePeakCentersQuadratic(rows, peaks, halfWindow = 3) {
       ...peak,
       xRaw: peak.x,
       yRaw: peak.y,
+      centerX: xCenter,
+      centerY: yCenter,
       x: xCenter,
       y: yCenter,
       fitWindowStartIndex: start,
