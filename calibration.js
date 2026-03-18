@@ -135,6 +135,7 @@ export function autoMatchPeaks({
               score,
               measuredPeaks: measured,
               referenceLines: refs,
+              matchedPeakCount: measured.length,
               ...fit,
             };
           }

@@ -28,6 +28,7 @@ const state = {
   lastCalibration: null,
   peakDetection: null,
   preview: null,
+  lampInference: null,
 };
 
 
@@ -90,10 +91,7 @@ function wireEvents() {
   els.prominenceWindowInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run peak detection again."));
   els.minProminenceInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run peak detection again."));
   els.refineHalfWindowInput.addEventListener("input", () => invalidatePeakDetection("Peak detection settings changed. Run peak detection again."));
-  els.calibrationFileInput.addEventListener("change", () => {
-    updateFileStatus(els.calibrationFileInput, els.calibrationFileStatus);
-    invalidatePeakDetection("Calibration file changed. Run peak detection again.");
-  });
+  els.calibrationFileInput.addEventListener("change", handleCalibrationFileChange);
   els.suffixInput.addEventListener("input", validateSuffix);
   els.detectPeaksBtn.addEventListener("click", detectPeaksWorkflow);
   els.runCalibrationBtn.addEventListener("click", runCalibrationWorkflow);
@@ -123,6 +121,90 @@ function wireEvents() {
   });
 }
 
+
+async function handleCalibrationFileChange() {
+  updateFileStatus(els.calibrationFileInput, els.calibrationFileStatus);
+  invalidatePeakDetection("Calibration file changed. Run peak detection again.");
+  state.lampInference = null;
+
+  const calibrationFile = els.calibrationFileInput.files?.[0];
+  if (!calibrationFile || !state.lampNames.length) return;
+
+  const inferredLamp = inferLampFromFileName(calibrationFile.name, state.lampNames);
+  if (!inferredLamp) return;
+
+  els.lampSelect.value = inferredLamp.lamp;
+  setDefaultSuffix();
+  state.lampInference = inferredLamp;
+  setStatus(`Lamp guessed from filename: ${inferredLamp.lamp}. Run peak detection to verify.`);
+}
+
+function lampFamilyKey(lamp) {
+  const match = String(lamp).match(/^[A-Za-z]+/);
+  return (match ? match[0] : lamp).toLowerCase();
+}
+
+function inferLampFromFileName(fileName, lampNames) {
+  const normalized = String(fileName).toLowerCase();
+  const tokens = normalized.split(/[^a-z0-9]+/).filter(Boolean);
+
+  const candidates = lampNames
+    .map((lamp) => ({
+      lamp,
+      family: lampFamilyKey(lamp),
+      sanitized: sanitizeLampName(lamp).toLowerCase(),
+    }))
+    .filter((candidate, index, list) => list.findIndex((item) => item.family === candidate.family) === index);
+
+  for (const candidate of candidates) {
+    if (tokens.includes(candidate.family) || normalized.includes(`_${candidate.family}_`) || normalized.startsWith(`${candidate.family}_`) || normalized.endsWith(`_${candidate.family}`)) {
+      return { lamp: candidate.lamp, source: "filename" };
+    }
+    if (candidate.sanitized && normalized.includes(candidate.sanitized)) {
+      return { lamp: candidate.lamp, source: "filename" };
+    }
+  }
+
+  return null;
+}
+
+function inferLampFromSpectrum({ detectedPeaks, degree, xMin, xMax, fileHintLamp = null }) {
+  const candidates = [];
+
+  for (const lamp of state.lampNames) {
+    const referenceLines = state.lampDb.filter((row) => row.lamp === lamp);
+    try {
+      const match = autoMatchPeaks({
+        detectedPeaks,
+        referenceLines,
+        degree,
+        xMin,
+        xMax,
+      });
+      const fileHintBonus = fileHintLamp && lampFamilyKey(fileHintLamp) === lampFamilyKey(lamp) ? 2 : 0;
+      candidates.push({
+        lamp,
+        score: match.score - fileHintBonus,
+        rawScore: match.score,
+        rmsError: match.rmsError,
+        matchedPeakCount: match.matchedPeakCount,
+      });
+    } catch {
+      // ignore lamps that cannot explain the detected peak pattern
+    }
+  }
+
+  if (!candidates.length) return null;
+
+  candidates.sort((a, b) => a.score - b.score || b.matchedPeakCount - a.matchedPeakCount || a.rmsError - b.rmsError);
+  const [best, second] = candidates;
+  return {
+    ...best,
+    alternatives: candidates,
+    confidenceGap: second ? second.score - best.score : null,
+    source: "spectrum",
+  };
+}
 
 function updateFileStatus(inputEl, statusEl) {
   const count = inputEl.files?.length || 0;
@@ -284,7 +366,8 @@ async function detectPeaksWorkflow() {
     }
 
     const degree = Number(els.fitDegreeSelect.value);
-    const lamp = els.lampSelect.value;
+    const selectedLamp = els.lampSelect.value;
+    const fileHintLamp = state.lampInference?.lamp || selectedLamp;
     const laserNm = getSelectedLaserNm();
     const inputAxisMode = els.inputAxisModeSelect.value;
     const outputMode = els.outputModeSelect.value;
@@ -299,6 +382,20 @@ async function detectPeaksWorkflow() {
     const calibrationRowsForFit = convertRowsToAbsInput(calibrationRows, inputAxisMode, laserNm);
     const peakResult = detectPeaks(calibrationRowsForFit, detectOptions);
     const xValues = calibrationRowsForFit.map((r) => r.x);
+
+    const inferredLamp = inferLampFromSpectrum({
+      detectedPeaks: peakResult.peaks,
+      degree,
+      xMin: Math.min(...xValues),
+      xMax: Math.max(...xValues),
+      fileHintLamp,
+    });
+    const lamp = inferredLamp?.lamp || fileHintLamp;
+    if (lamp) {
+      els.lampSelect.value = lamp;
+      setDefaultSuffix();
+    }
+    state.lampInference = inferredLamp || (lamp ? { lamp, source: state.lampInference?.source || "selection" } : null);
 
     state.peakDetection = {
       degree,
@@ -327,7 +424,10 @@ async function detectPeaksWorkflow() {
 
     updateCalibrationButtonState();
     updateSpectrumModeControl();
-    setStatus(`Peak detection finished: ${peakResult.peaks.length} peaks. Now run calibration.`);
+    const lampMessage = inferredLamp
+      ? `Auto-selected lamp: ${lamp} (matched peaks: ${inferredLamp.matchedPeakCount}, score: ${formatNumber(inferredLamp.rawScore, 3)})`
+      : `Using lamp: ${lamp}`;
+    setStatus(`Peak detection finished: ${peakResult.peaks.length} peaks. ${lampMessage}. Now run calibration.`);
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Peak detection failed.", true);
