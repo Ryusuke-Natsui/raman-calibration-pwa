@@ -69,6 +69,7 @@ init();
 async function init() {
   populateLaserOptions();
   wireEvents();
+  setupFileDropZones();
   registerServiceWorker();
   await loadBundledLampDb();
   setDefaultSuffix();
@@ -204,6 +205,45 @@ function inferLampFromSpectrum({ detectedPeaks, degree, xMin, xMax, fileHintLamp
     confidenceGap: second ? second.score - best.score : null,
     source: "spectrum",
   };
+}
+
+function setupFileDropZones() {
+  const dropZones = document.querySelectorAll('[data-drop-zone]');
+  dropZones.forEach((zone) => {
+    const inputId = zone.getAttribute('data-input-id');
+    const input = inputId ? document.getElementById(inputId) : null;
+    if (!(input instanceof HTMLInputElement)) return;
+
+    const setDragState = (isActive) => {
+      zone.classList.toggle('is-dragover', isActive);
+    };
+
+    ['dragenter', 'dragover'].forEach((eventName) => {
+      zone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        setDragState(true);
+      });
+    });
+
+    ['dragleave', 'dragend', 'drop'].forEach((eventName) => {
+      zone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        if (eventName === 'dragleave' && zone.contains(event.relatedTarget)) return;
+        setDragState(false);
+      });
+    });
+
+    zone.addEventListener('drop', (event) => {
+      const files = [...(event.dataTransfer?.files || [])];
+      if (!files.length) return;
+
+      const acceptedFiles = input.multiple ? files : [files[0]];
+      const transfer = new DataTransfer();
+      acceptedFiles.forEach((file) => transfer.items.add(file));
+      input.files = transfer.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  });
 }
 
 function updateFileStatus(inputEl, statusEl) {
