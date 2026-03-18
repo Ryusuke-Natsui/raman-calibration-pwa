@@ -318,3 +318,17 @@ th, td {
 .code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
+
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.section-header h2 {
+  margin-bottom: 0;
+}

@@ -56,6 +56,7 @@ const els = {
   plotContainer: document.getElementById("plotContainer"),
   fitSummary: document.getElementById("fitSummary"),
   matchTableBody: document.querySelector("#matchTable tbody"),
+  downloadCalibrationResultsBtn: document.getElementById("downloadCalibrationResultsBtn"),
   downloadList: document.getElementById("downloadList"),
   calibrationFileStatus: document.getElementById("calibrationFileStatus"),
   measurementFilesStatus: document.getElementById("measurementFilesStatus"),
@@ -74,6 +75,7 @@ async function init() {
   setDefaultSuffix();
   updateCalibrationButtonState();
   updateSpectrumModeControl();
+  updateCalibrationResultsButtonState();
   updateZoomButtonState();
 }
 
@@ -98,6 +100,7 @@ function wireEvents() {
   els.downloadExampleNoteBtn.addEventListener("click", () => {
     setStatus("Bundled example file: `examples/20260205_Ne_example.txt`. If you upload this app to GitHub, include the `examples` folder as well.");
   });
+  els.downloadCalibrationResultsBtn.addEventListener("click", downloadCalibrationResults);
   els.measurementFilesInput.addEventListener("change", () => updateFileStatus(els.measurementFilesInput, els.measurementFilesStatus));
   els.previewSpectrumModeSelect.addEventListener("change", () => {
     if (!state.preview) return;
@@ -349,6 +352,7 @@ function invalidatePeakDetection(statusMessage = "") {
   els.fitSummary.innerHTML = "";
   els.matchTableBody.innerHTML = "";
   els.downloadList.innerHTML = "";
+  updateCalibrationResultsButtonState();
   updateSpectrumModeControl();
   updateZoomButtonState();
   if (statusMessage) setStatus(statusMessage);
@@ -490,6 +494,7 @@ async function runCalibrationWorkflow() {
     renderSummary(state.lastCalibration);
     renderMatchTable(state.lastCalibration);
     renderDownloads(measurementFiles);
+    updateCalibrationResultsButtonState();
 
     const fallbackNote = fallbackReason ? ` / auto-switched input axis to ${inputAxisLabel(resolvedInputAxisMode)}` : "";
     setStatus(`Done: ${lamp} / degree ${degree} / RMS = ${formatNumber(match.rmsError, 4)} cm^-1${fallbackNote}`);
@@ -567,8 +572,22 @@ function resolveCalibrationMatch(peakDetection, referenceLines) {
   }
 }
 
+function getCalibrationCenterMetrics(cal) {
+  const calibratedAbs = applyCalibration(cal.coeffs, cal.calibrationRows.map((row) => row.x));
+  const minAbs = Math.min(...calibratedAbs);
+  const maxAbs = Math.max(...calibratedAbs);
+  const centerAbs = (minAbs + maxAbs) / 2;
+  return {
+    centerAbs,
+    centerWavelengthNm: absWavenumberToWavelengthNm(centerAbs),
+    calibratedAbsMin: minAbs,
+    calibratedAbsMax: maxAbs,
+  };
+}
+
 function renderSummary(cal) {
   const coeffText = cal.coeffs.map((c) => formatNumber(c, 8)).join(", ");
+  const center = getCalibrationCenterMetrics(cal);
   const metrics = [
     ["Lamp", cal.lamp],
     ["Model", `${cal.degree} order`],
@@ -577,6 +596,8 @@ function renderSummary(cal) {
     ["Output", outputAxisLabel(cal.outputMode)],
     ["Matched peaks", String(cal.matchedPeaks.length)],
     ["RMS", `${formatNumber(cal.rmsError, 5)} cm^-1`],
+    ["Center Abs. Wavenumber", `${formatNumber(center.centerAbs, 4)} cm^-1`],
+    ["Center Wavelength", `${formatNumber(center.centerWavelengthNm, 4)} nm`],
     ["Coefficients", coeffText],
     ["Detected peaks", String(cal.peakResult.peaks.length)],
   ];
@@ -587,6 +608,50 @@ function renderSummary(cal) {
       <div class="value ${label === "Coefficients" ? "code" : ""}">${escapeHtml(value)}</div>
     </div>
   `).join("");
+}
+
+function buildCalibrationResultsText(cal) {
+  const center = getCalibrationCenterMetrics(cal);
+  const lines = [
+    '# Calibration results',
+    `Lamp	${cal.lamp}`,
+    `Model	${cal.degree} order`,
+    `Laser_nm	${formatNumber(cal.laserNm, 4)}`,
+    `Input_axis	${inputAxisLabel(cal.inputAxisMode)}`,
+    `Output_axis	${outputAxisLabel(cal.outputMode)}`,
+    `Matched_peaks	${cal.matchedPeaks.length}`,
+    `Detected_peaks	${cal.peakResult.peaks.length}`,
+    `RMS_cm^-1	${formatNumber(cal.rmsError, 6)}`,
+    `Center_abs_wavenumber_cm^-1	${formatNumber(center.centerAbs, 6)}`,
+    `Center_wavelength_nm	${formatNumber(center.centerWavelengthNm, 6)}`,
+    `Calibrated_abs_min_cm^-1	${formatNumber(center.calibratedAbsMin, 6)}`,
+    `Calibrated_abs_max_cm^-1	${formatNumber(center.calibratedAbsMax, 6)}`,
+    `Coefficients	${cal.coeffs.map((c) => formatNumber(c, 10)).join(', ')}`,
+    '',
+    '# Matched peaks',
+    'Index	Measured_x	Reference_abs_wavenumber_cm^-1	Reference_wavelength_nm	Residual_cm^-1',
+    ...cal.matchedPeaks.map((peak, i) => [
+      i + 1,
+      formatNumber(peak.x, 6),
+      formatNumber(cal.referenceLines[i].absWavenumber, 6),
+      formatNumber(cal.referenceLines[i].wavelengthNm, 6),
+      formatNumber(cal.residuals[i], 6),
+    ].join('\t')),
+    '',
+  ];
+  return lines.join('\n');
+}
+
+function updateCalibrationResultsButtonState() {
+  els.downloadCalibrationResultsBtn.disabled = !state.lastCalibration;
+}
+
+function downloadCalibrationResults() {
+  if (!state.lastCalibration) return;
+  const fileBase = els.calibrationFileInput.files?.[0]?.name ? basenameWithoutExt(els.calibrationFileInput.files[0].name) : 'calibration';
+  const suffix = els.suffixInput.value.trim() || '-clb';
+  const filename = `${fileBase}${suffix}_results.txt`;
+  downloadText(filename, buildCalibrationResultsText(state.lastCalibration));
 }
 
 function renderMatchTable(cal) {
