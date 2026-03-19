@@ -1,5 +1,5 @@
 import { detectPeaks } from "./peaks.js";
-import { autoMatchPeaks, applyCalibration, evaluatePolynomial } from "./calibration.js";
+import { autoMatchPeaks, applyCalibration, derivativeIsPositive, evaluatePolynomial, fitCalibrationFromPeaks } from "./calibration.js";
 import {
   LASER_OPTIONS_NM,
   absWavenumberToRamanShiftCm,
@@ -37,7 +37,7 @@ const state = {
   lastCalibration: null,
   peakDetection: null,
   preview: null,
-  lampInference: null,
+  lampInference: [],
   outputDirectoryHandle: null,
   selectedPreviewPeak: null,
 };
@@ -47,6 +47,7 @@ const els = {
   lampDbStatus: document.getElementById("lampDbStatus"),
   reloadLampDbBtn: document.getElementById("reloadLampDbBtn"),
   lampSelect: document.getElementById("lampSelect"),
+  calibrationFilesSummary: document.getElementById("calibrationFilesSummary"),
   customLampField: document.getElementById("customLampField"),
   customLampPeaksInput: document.getElementById("customLampPeaksInput"),
   fitDegreeSelect: document.getElementById("fitDegreeSelect"),
@@ -166,31 +167,47 @@ function wireEvents() {
 
 async function handleCalibrationFileChange() {
   updateFileStatus(els.calibrationFileInput, els.calibrationFileStatus);
-  invalidatePeakDetection("Calibration file changed. Run calibration again.");
-  state.lampInference = null;
+  invalidatePeakDetection("Calibration files changed. Run calibration again.");
+  state.lampInference = [];
 
-  const calibrationFile = els.calibrationFileInput.files?.[0];
-  if (!calibrationFile) return;
-
-  const inferredLamp = state.lampNames.length ? inferLampFromFileName(calibrationFile.name, state.lampNames) : null;
-  const inferredLaser = inferLaserFromFileName(calibrationFile.name);
-
-  if (inferredLamp) {
-    els.lampSelect.value = inferredLamp.lamp;
-    setDefaultSuffix();
-    state.lampInference = inferredLamp;
+  const calibrationFiles = [...(els.calibrationFileInput.files || [])];
+  if (!calibrationFiles.length) {
+    updateCalibrationFilesSummary();
+    return;
   }
 
+  const inferred = calibrationFiles.map((file) => ({
+    fileName: file.name,
+    inferredLamp: state.lampNames.length ? inferLampFromFileName(file.name, state.lampNames) : null,
+    inferredLaser: inferLaserFromFileName(file.name),
+  }));
+
+  state.lampInference = inferred
+    .filter((item) => item.inferredLamp)
+    .map((item) => ({ ...item.inferredLamp, fileName: item.fileName }));
+
+  const distinctLampGuesses = [...new Set(state.lampInference.map((item) => item.lamp))];
+  if (distinctLampGuesses.length > 1) {
+    els.lampSelect.value = "Auto";
+    setDefaultSuffix();
+  } else if (distinctLampGuesses.length === 1 && els.lampSelect.value !== "Custom") {
+    els.lampSelect.value = distinctLampGuesses[0];
+    setDefaultSuffix();
+  }
+
+  const inferredLaser = inferred.find((item) => item.inferredLaser)?.inferredLaser;
   if (inferredLaser) {
     els.laserSelect.value = inferredLaser.optionValue;
     els.customLaserInput.value = "";
   }
 
-  if (inferredLamp || inferredLaser) {
+  updateCalibrationFilesSummary();
+
+  if (state.lampInference.length || inferredLaser) {
     const updates = [];
-    if (inferredLamp) updates.push(`lamp: ${inferredLamp.lamp}`);
+    if (state.lampInference.length) updates.push(`lamp guesses: ${distinctLampGuesses.join(", ")}`);
     if (inferredLaser) updates.push(`laser: ${inferredLaser.label}`);
-    setStatus(`Settings guessed from filename (${updates.join(", ")}). Run calibration to verify.`);
+    setStatus(`Settings guessed from filenames (${updates.join(", ")}). Run calibration to verify.`);
   }
 }
 
@@ -204,7 +221,7 @@ function inferLampFromFileName(fileName, lampNames) {
   const tokens = normalized.split(/[^a-z0-9]+/).filter(Boolean);
 
   const candidates = lampNames
-    .filter((lamp) => lamp !== "Custom")
+    .filter((lamp) => lamp !== "Custom" && lamp !== "Auto")
     .map((lamp) => ({
       lamp,
       family: lampFamilyKey(lamp),
@@ -244,7 +261,7 @@ function inferLaserFromFileName(fileName) {
 function inferLampFromSpectrum({ detectedPeaks, degree, xMin, xMax, fileHintLamp = null }) {
   const candidates = [];
 
-  for (const lamp of state.lampNames.filter((name) => name !== "Custom")) {
+  for (const lamp of state.lampNames.filter((name) => name !== "Custom" && name !== "Auto")) {
     const referenceLines = getReferenceLinesForLamp(lamp);
     try {
       const match = autoMatchPeaks({
@@ -396,7 +413,7 @@ async function loadBundledLampDb() {
 
 function loadLampDbFromText(text, message) {
   state.lampDb = parseLampCsv(text);
-  state.lampNames = [...new Set(state.lampDb.map((row) => row.lamp)), "Custom"];
+  state.lampNames = ["Auto", ...new Set(state.lampDb.map((row) => row.lamp)), "Custom"];
   els.lampSelect.innerHTML = "";
 
   for (const lamp of state.lampNames) {
@@ -444,6 +461,7 @@ function validateCustomLampPeaks() {
 }
 
 function getReferenceLinesForLamp(lamp) {
+  if (lamp === "Auto") return [];
   if (lamp === "Custom") {
     return parseCustomLampPeaks().map((absWavenumber) => ({
       lamp: "Custom",
@@ -452,6 +470,19 @@ function getReferenceLinesForLamp(lamp) {
     }));
   }
   return state.lampDb.filter((row) => row.lamp === lamp);
+}
+
+function updateCalibrationFilesSummary(items = state.peakDetection?.fileCalibrations || null) {
+  if (!els.calibrationFilesSummary) return;
+  if (items?.length) {
+    els.calibrationFilesSummary.textContent = items
+      .map((item) => `${item.file.name}: ${item.lamp} / ${item.match?.measuredPeaks?.length ?? item.peakResult.peaks.length} peaks`)
+      .join(" | ");
+    return;
+  }
+
+  const files = [...(els.calibrationFileInput.files || [])];
+  els.calibrationFilesSummary.textContent = files.length ? `${files.length} calibration file(s) selected.` : "";
 }
 
 function getSelectedLaserNm() {
@@ -468,7 +499,7 @@ function getSelectedLaserNm() {
 function setDefaultSuffix() {
   const lamp = els.lampSelect.value;
   if (!lamp) return;
-  els.suffixInput.value = `-clb_${sanitizeLampName(lamp)}`;
+  els.suffixInput.value = lamp === "Auto" ? "-clb_multi" : `-clb_${sanitizeLampName(lamp)}`;
   validateSuffix();
 }
 
@@ -564,15 +595,9 @@ async function runPeakDetection() {
     validateBeforePeakDetection();
     setStatus("Detecting peaks...");
 
-    const calibrationFile = els.calibrationFileInput.files[0];
-    const calibrationRows = parseDelimitedTable(await readFileText(calibrationFile));
-    if (calibrationRows.length < 3) {
-      throw new Error("Could not read enough data points from the calibration file.");
-    }
-
+    const calibrationFiles = [...els.calibrationFileInput.files];
     const degree = Number(els.fitDegreeSelect.value);
     const selectedLamp = els.lampSelect.value;
-    const fileHintLamp = state.lampInference?.lamp || selectedLamp;
     const laserNm = getSelectedLaserNm();
     const inputAxisMode = els.inputAxisModeSelect.value;
     const outputMode = els.outputModeSelect.value;
@@ -584,52 +609,71 @@ async function runPeakDetection() {
       refineHalfWindow: Math.max(1, Math.floor(Number(els.refineHalfWindowInput.value) || 3)),
     };
 
-    const calibrationRowsForFit = convertRowsToAbsInput(calibrationRows, inputAxisMode, laserNm);
-    const referenceLinesForProminence = selectedLamp === "Custom"
-      ? getReferenceLinesForLamp("Custom")
-      : getReferenceLinesForLamp(fileHintLamp || selectedLamp);
-    const peakResult = detectPeaks(calibrationRowsForFit, {
-      ...detectOptions,
-      referenceLines: referenceLinesForProminence,
-    });
-    const xValues = calibrationRowsForFit.map((r) => r.x);
+    const fileCalibrations = [];
+    for (const calibrationFile of calibrationFiles) {
+      const calibrationRows = parseDelimitedTable(await readFileText(calibrationFile));
+      if (calibrationRows.length < 3) throw new Error(`Could not read enough data points from ${calibrationFile.name}.`);
 
-    const inferredLamp = selectedLamp === "Custom"
-      ? null
-      : inferLampFromSpectrum({
-        detectedPeaks: peakResult.peaks,
-        degree,
+      const fileHintLamp = state.lampInference.find((item) => item.fileName === calibrationFile.name)?.lamp || (selectedLamp !== "Auto" ? selectedLamp : null);
+      const calibrationRowsForFit = convertRowsToAbsInput(calibrationRows, inputAxisMode, laserNm);
+      const xValues = calibrationRowsForFit.map((r) => r.x);
+      const referenceLinesForProminence = selectedLamp === "Custom"
+        ? getReferenceLinesForLamp("Custom")
+        : getReferenceLinesForLamp(fileHintLamp || state.lampNames.find((name) => name.startsWith("Ne")) || "Ne");
+      const peakResult = detectPeaks(calibrationRowsForFit, {
+        ...detectOptions,
+        referenceLines: referenceLinesForProminence,
+      });
+      const inferredLamp = (selectedLamp === "Custom" || selectedLamp !== "Auto")
+        ? null
+        : inferLampFromSpectrum({
+          detectedPeaks: peakResult.peaks,
+          degree,
+          xMin: Math.min(...xValues),
+          xMax: Math.max(...xValues),
+          fileHintLamp,
+        });
+      const lamp = selectedLamp === "Custom"
+        ? "Custom"
+        : selectedLamp === "Auto"
+          ? (inferredLamp?.lamp || fileHintLamp)
+          : selectedLamp;
+      if (!lamp) throw new Error(`Could not infer lamp for ${calibrationFile.name}. Rename the file with lamp info or choose a fixed lamp.`);
+
+      fileCalibrations.push({
+        file: calibrationFile,
+        lamp,
+        inferredLamp,
+        calibrationRows,
+        calibrationRowsForFit,
+        peakResult,
+        detectOptions,
         xMin: Math.min(...xValues),
         xMax: Math.max(...xValues),
-        fileHintLamp,
       });
-    const lamp = selectedLamp === "Custom" ? "Custom" : (inferredLamp?.lamp || fileHintLamp);
-    if (lamp) {
-      els.lampSelect.value = lamp;
+    }
+
+    const lampList = [...new Set(fileCalibrations.map((item) => item.lamp))];
+    if (lampList.length > 1) {
+      els.lampSelect.value = "Auto";
       setDefaultSuffix();
     }
-    state.lampInference = inferredLamp || (lamp ? { lamp, source: state.lampInference?.source || "selection" } : null);
 
     state.peakDetection = {
       degree,
-      lamp,
+      lamp: lampList.length === 1 ? lampList[0] : "Multiple",
+      lamps: lampList,
       laserNm,
       inputAxisMode,
       outputMode,
-      calibrationRows,
-      calibrationRowsForFit,
-      peakResult,
-      detectOptions: {
-        ...detectOptions,
-        referenceLines: referenceLinesForProminence,
-      },
-      xMin: Math.min(...xValues),
-      xMax: Math.max(...xValues),
+      detectOptions,
+      fileCalibrations,
     };
 
+    const previewSource = fileCalibrations[0];
     state.preview = {
-      rows: calibrationRowsForFit,
-      peakResult,
+      rows: previewSource.calibrationRowsForFit,
+      peakResult: previewSource.peakResult,
       matchedPeaks: [],
       matchedLines: [],
       laserNm,
@@ -637,13 +681,14 @@ async function runPeakDetection() {
       zoomRange: null,
     };
     renderPreview();
-    renderAutoProminenceHint(peakResult);
+    renderAutoProminenceHint(previewSource.peakResult);
+    updateCalibrationFilesSummary(fileCalibrations);
 
     updateSpectrumModeControl();
-    const lampMessage = inferredLamp
-      ? `Auto-selected lamp: ${lamp} (matched peaks: ${inferredLamp.matchedPeakCount}, score: ${formatNumber(inferredLamp.rawScore, 3)})`
-      : `Using lamp: ${lamp}`;
-    return { peakCount: peakResult.peaks.length, lampMessage };
+    return {
+      peakCount: fileCalibrations.reduce((sum, item) => sum + item.peakResult.peaks.length, 0),
+      lampMessage: `Lamps used: ${lampList.join(", ")}`,
+    };
   } catch (error) {
     console.error(error);
     throw error;
@@ -657,46 +702,33 @@ async function runCalibrationWorkflow() {
 
     const measurementFiles = [...els.measurementFilesInput.files];
     const peakDetectionSummary = await runPeakDetection();
-    const { degree, lamp, laserNm, inputAxisMode, outputMode } = state.peakDetection;
-
-    const referenceLines = getReferenceLinesForLamp(lamp);
-    const resolvedCalibration = resolveCalibrationMatch(state.peakDetection, referenceLines);
-    const { match, calibrationRowsForFit, peakResult, xMin, xMax, inputAxisMode: resolvedInputAxisMode, fallbackReason } = resolvedCalibration;
-
-    if (fallbackReason) {
-      els.inputAxisModeSelect.value = resolvedInputAxisMode;
-      state.peakDetection = {
-        ...state.peakDetection,
-        inputAxisMode: resolvedInputAxisMode,
-        calibrationRowsForFit,
-        peakResult,
-        xMin,
-        xMax,
-      };
-    }
+    const { degree, lamp, lamps, laserNm, inputAxisMode, outputMode } = state.peakDetection;
+    const { match } = resolveCalibrationMatch(state.peakDetection);
+    const previewSource = state.peakDetection.fileCalibrations[0];
 
     state.lastCalibration = {
       degree,
       lamp,
+      lamps,
       laserNm,
-      inputAxisMode: resolvedInputAxisMode,
+      inputAxisMode,
       outputMode,
       coeffs: match.coeffs,
       rmsError: match.rmsError,
       matchedPeaks: match.measuredPeaks,
       referenceLines: match.referenceLines,
       residuals: match.residuals,
-      calibrationRows: calibrationRowsForFit,
-      peakResult,
-      xMin,
-      xMax,
+      calibrationRows: previewSource.calibrationRowsForFit,
+      peakResult: previewSource.peakResult,
+      sourceFiles: match.sourceFiles,
+      fileCalibrations: state.peakDetection.fileCalibrations,
     };
 
     state.preview = {
-      rows: calibrationRowsForFit,
-      peakResult,
-      matchedPeaks: match.measuredPeaks,
-      matchedLines: match.referenceLines,
+      rows: previewSource.calibrationRowsForFit,
+      peakResult: previewSource.peakResult,
+      matchedPeaks: previewSource.match.measuredPeaks,
+      matchedLines: previewSource.match.referenceLines,
       laserNm,
       calibrationCoeffs: match.coeffs,
       zoomRange: state.preview?.zoomRange || null,
@@ -709,8 +741,7 @@ async function runCalibrationWorkflow() {
     renderDownloads(measurementFiles);
     updateCalibrationResultsButtonState();
 
-    const fallbackNote = fallbackReason ? ` / auto-switched input axis to ${inputAxisLabel(resolvedInputAxisMode)}` : "";
-    setStatus(`Done: ${lamp} / degree ${degree} / ${peakDetectionSummary.peakCount} peaks / ${peakDetectionSummary.lampMessage} / RMS = ${formatNumber(match.rmsError, 4)} cm^-1${fallbackNote}`);
+    setStatus(`Done: ${lamp} / degree ${degree} / ${peakDetectionSummary.peakCount} detected peaks / ${peakDetectionSummary.lampMessage} / RMS = ${formatNumber(match.rmsError, 4)} cm^-1`);
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Processing failed.", true);
@@ -719,75 +750,53 @@ async function runCalibrationWorkflow() {
 
 function validateBeforePeakDetection() {
   if (!state.lampDb.length) throw new Error("Please load a lamp reference table.");
-  if (!els.calibrationFileInput.files?.length) throw new Error("Please select a calibration text file.");
+  if (!els.calibrationFileInput.files?.length) throw new Error("Please select one or more calibration text files.");
   if (!validateCustomLampPeaks()) throw new Error(els.customLampPeaksInput.validationMessage);
 }
 
 function validateBeforeCalibration() {
-  if (!els.calibrationFileInput.files?.length) throw new Error("Please select a calibration text file.");
+  if (!els.calibrationFileInput.files?.length) throw new Error("Please select one or more calibration text files.");
   if (!els.measurementFilesInput.files?.length) throw new Error("Please select one or more measurement files.");
   if (!validateSuffix()) throw new Error("Please fix the output filename suffix.");
   if (!validateCustomLampPeaks()) throw new Error(els.customLampPeaksInput.validationMessage);
 }
 
 
-function buildCalibrationCandidate(peakDetection, inputAxisMode) {
-  const calibrationRowsForFit = convertRowsToAbsInput(peakDetection.calibrationRows, inputAxisMode, peakDetection.laserNm);
-  const peakResult = detectPeaks(calibrationRowsForFit, {
-    ...peakDetection.detectOptions,
-    referenceLines: getReferenceLinesForLamp(peakDetection.lamp),
-  });
-  const xValues = calibrationRowsForFit.map((row) => row.x);
-  return {
-    inputAxisMode,
-    calibrationRowsForFit,
-    peakResult,
-    xMin: Math.min(...xValues),
-    xMax: Math.max(...xValues),
-  };
-}
+function resolveCalibrationMatch(peakDetection) {
+  const matchedPeaks = [];
+  const referenceLines = [];
+  const sourceFiles = [];
 
-function resolveCalibrationMatch(peakDetection, referenceLines) {
-  const primaryCandidate = {
-    inputAxisMode: peakDetection.inputAxisMode,
-    calibrationRowsForFit: peakDetection.calibrationRowsForFit,
-    peakResult: peakDetection.peakResult,
-    xMin: peakDetection.xMin,
-    xMax: peakDetection.xMax,
-  };
-
-  try {
-    return {
-      ...primaryCandidate,
-      match: autoMatchPeaks({
-        detectedPeaks: primaryCandidate.peakResult.peaks,
-        referenceLines,
-        degree: peakDetection.degree,
-        xMin: primaryCandidate.xMin,
-        xMax: primaryCandidate.xMax,
-      }),
-      fallbackReason: null,
-    };
-  } catch (error) {
-    const canTryAlternate = error.message === "Not enough lamp lines fall within the measured x-range.";
-    const alternateMode = peakDetection.inputAxisMode === "raman" ? "absolute" : "raman";
-    if (!canTryAlternate) throw error;
-
-    const alternateCandidate = buildCalibrationCandidate(peakDetection, alternateMode);
-    const alternateMatch = autoMatchPeaks({
-      detectedPeaks: alternateCandidate.peakResult.peaks,
-      referenceLines,
+  for (const fileCalibration of peakDetection.fileCalibrations) {
+    const perFileLines = getReferenceLinesForLamp(fileCalibration.lamp);
+    const match = autoMatchPeaks({
+      detectedPeaks: fileCalibration.peakResult.peaks,
+      referenceLines: perFileLines,
       degree: peakDetection.degree,
-      xMin: alternateCandidate.xMin,
-      xMax: alternateCandidate.xMax,
+      xMin: fileCalibration.xMin,
+      xMax: fileCalibration.xMax,
     });
-
-    return {
-      ...alternateCandidate,
-      match: alternateMatch,
-      fallbackReason: error.message,
-    };
+    fileCalibration.match = match;
+    matchedPeaks.push(...match.measuredPeaks);
+    referenceLines.push(...match.referenceLines);
+    sourceFiles.push(...match.measuredPeaks.map(() => fileCalibration.file.name));
   }
+
+  const fit = fitCalibrationFromPeaks(matchedPeaks, referenceLines, peakDetection.degree);
+  const xVals = matchedPeaks.map((peak) => peak.centerX ?? peak.x);
+  if (!derivativeIsPositive(fit.coeffs, Math.min(...xVals), Math.max(...xVals))) {
+    throw new Error("Combined calibration fit is not monotonic. Try lowering the degree or removing a problematic lamp file.");
+  }
+
+  return {
+    match: {
+      ...fit,
+      measuredPeaks: matchedPeaks,
+      referenceLines,
+      sourceFiles,
+    },
+    fallbackReason: null,
+  };
 }
 
 function renderAutoProminenceHint(peakResult) {
@@ -856,7 +865,8 @@ function renderSummary(cal) {
     ? `${formatNumber(cal.peakResult.minProminence, 3)} (detected ${cal.peakResult.peaks.length}, expected ${formatExpectedPeakWindow(autoProminenceDetails.expectedPeakWindow)})`
     : `${formatNumber(cal.peakResult.minProminence, 3)} (manual)`;
   const metrics = [
-    ["Lamp", cal.lamp],
+    ["Lamp", cal.lamps?.length > 1 ? cal.lamps.join(", ") : cal.lamp],
+    ["Calibration files", String(cal.fileCalibrations?.length || 1)],
     ["Model", `${cal.degree} order`],
     ["Laser", `${formatNumber(cal.laserNm, 2)} nm`],
     ["Input axis", inputAxisLabel(cal.inputAxisMode)],
@@ -882,7 +892,8 @@ function buildCalibrationResultsText(cal) {
   const center = getCalibrationCenterMetrics(cal);
   const lines = [
     '# Calibration results',
-    `Lamp	${cal.lamp}`,
+    `Lamp	${cal.lamps?.length > 1 ? cal.lamps.join(", ") : cal.lamp}`,
+    `Calibration_files	${cal.fileCalibrations?.length || 1}`,
     `Model	${cal.degree} order`,
     `Laser_nm	${formatNumber(cal.laserNm, 4)}`,
     `Input_axis	${inputAxisLabel(cal.inputAxisMode)}`,
@@ -900,9 +911,10 @@ function buildCalibrationResultsText(cal) {
     `Coefficients	${cal.coeffs.map((c) => formatNumber(c, 10)).join(', ')}`,
     '',
     '# Matched peaks',
-    'Index	Peak_center_x	Reference_abs_wavenumber_cm^-1	Reference_wavelength_nm	Residual_cm^-1',
+    'Index	Source_file	Peak_center_x	Reference_abs_wavenumber_cm^-1	Reference_wavelength_nm	Residual_cm^-1',
     ...cal.matchedPeaks.map((peak, i) => [
       i + 1,
+      cal.sourceFiles?.[i] || '-',
       formatNumber(peak.centerX ?? peak.x, 6),
       formatNumber(cal.referenceLines[i].absWavenumber, 6),
       formatReferenceWavelength(cal.referenceLines[i].wavelengthNm, 6),
@@ -951,6 +963,7 @@ function renderMatchTable(cal) {
   els.matchTableBody.innerHTML = cal.matchedPeaks.map((peak, i) => `
     <tr>
       <td>${i + 1}</td>
+      <td>${escapeHtml(cal.sourceFiles?.[i] || "-")}</td>
       <td>${formatNumber(peak.centerX ?? peak.x, 4)}</td>
       <td>${formatNumber(cal.referenceLines[i].absWavenumber, 4)}</td>
       <td>${formatReferenceWavelength(cal.referenceLines[i].wavelengthNm, 4)}</td>

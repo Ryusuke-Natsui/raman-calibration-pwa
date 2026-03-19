@@ -34,7 +34,7 @@
         <label class="field">
           <span>Lamp</span>
           <select id="lampSelect"></select>
-          <small>Automatically guessed from the calibration filename and verified from detected peak positions.</small>
+          <small>「Auto (per file)」を選ぶと、各キャリブレーションファイルごとにランプを推定し、複数ランプのピークをまとめて較正に使えます。</small>
         </label>
 
         <label id="customLampField" class="field hidden">
@@ -105,12 +105,12 @@
         <h2>2. Input files</h2>
 
         <label class="field">
-          <span>Calibration text file</span>
+          <span>Calibration text files (multiple allowed)</span>
           <div class="file-picker drop-zone" data-drop-zone data-input-id="calibrationFileInput">
-            <input id="calibrationFileInput" type="file" accept=".txt,.dat,.csv,text/plain" />
+            <input id="calibrationFileInput" type="file" accept=".txt,.dat,.csv,text/plain" multiple />
             <label for="calibrationFileInput" class="file-picker-btn">Select File</label>
             <span id="calibrationFileStatus" class="muted">No file selected</span>
-            <small class="drop-zone-hint muted">You can also drag and drop a file here.</small>
+            <small class="drop-zone-hint muted">You can also drag and drop one or more files here.</small>
           </div>
         </label>
 
@@ -137,6 +137,7 @@
         </div>
 
         <div id="statusBox" class="status">Ready</div>
+        <small id="calibrationFilesSummary" class="muted"></small>
       </div>
     </section>
 
@@ -177,6 +178,7 @@
           <thead>
             <tr>
               <th>#</th>
+              <th>Source file</th>
               <th>Measured x</th>
               <th>Reference abs. wavenumber</th>
               <th>Reference wavelength (nm)</th>
