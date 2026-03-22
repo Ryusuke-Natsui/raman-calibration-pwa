@@ -34,7 +34,7 @@
         <label class="field">
           <span>Lamp</span>
           <select id="lampSelect"></select>
-          <small>「Auto (per file)」を選ぶと、各キャリブレーションファイルごとにランプを推定し、複数ランプのピークをまとめて較正に使えます。</small>
+          <small>「Auto (per file)」を選ぶと、各キャリブレーションファイルごとにランプを推定し、複数ランプのピークをまとめて較正に使えます。Sulfur は 26.9, 50.0, 85.1, 153.8, 219.1, 473.2 cm^-1 のラマンシフト参照として扱います。</small>
         </label>
 
         <label id="customLampField" class="field hidden">
@@ -64,7 +64,7 @@
           <span>Input x-axis unit</span>
           <select id="inputAxisModeSelect">
             <option value="absolute" selected>Absolute wavenumber (cm^-1)</option>
-            <option value="raman">Raman shift (cm^-1, selected laser)</option>
+            <option value="raman">Raman shift (cm^-1, selected laser; use this for Sulfur)</option>
           </select>
         </label>
 
