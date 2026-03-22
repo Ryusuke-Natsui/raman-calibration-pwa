@@ -23,6 +23,8 @@ import {
 } from "./utils.js";
 
 const BUNDLED_LAMP_DB_URL = new URL("./data/calibration_lamps_data_for_ThomasLab.csv", import.meta.url);
+const SULFUR_RAMAN_SHIFTS_CM = [26.9, 50.0, 85.1, 153.8, 219.1, 473.2];
+
 const LASER_FILENAME_ALIASES = new Map([
   ["488nm", "488.00"],
   ["532nm", "532.08"],
@@ -106,6 +108,9 @@ function wireEvents() {
   els.reloadLampDbBtn.addEventListener("click", loadBundledLampDb);
   els.lampSelect.addEventListener("change", () => {
     updateCustomLampControls();
+    if (els.lampSelect.value === "Sulfur") {
+      els.inputAxisModeSelect.value = "raman";
+    }
     setDefaultSuffix();
     invalidatePeakDetection("Settings changed. Run calibration again.");
   });
@@ -258,11 +263,11 @@ function inferLaserFromFileName(fileName) {
   return null;
 }
 
-function inferLampFromSpectrum({ detectedPeaks, degree, xMin, xMax, fileHintLamp = null }) {
+function inferLampFromSpectrum({ detectedPeaks, degree, xMin, xMax, laserNm, fileHintLamp = null }) {
   const candidates = [];
 
   for (const lamp of state.lampNames.filter((name) => name !== "Custom" && name !== "Auto")) {
-    const referenceLines = getReferenceLinesForLamp(lamp);
+    const referenceLines = getReferenceLinesForLamp(lamp, laserNm);
     try {
       const match = autoMatchPeaks({
         detectedPeaks,
@@ -413,7 +418,7 @@ async function loadBundledLampDb() {
 
 function loadLampDbFromText(text, message) {
   state.lampDb = parseLampCsv(text);
-  state.lampNames = ["Auto", ...new Set(state.lampDb.map((row) => row.lamp)), "Custom"];
+  state.lampNames = ["Auto", ...new Set(state.lampDb.map((row) => row.lamp)), "Sulfur", "Custom"];
   els.lampSelect.innerHTML = "";
 
   for (const lamp of state.lampNames) {
@@ -460,7 +465,7 @@ function validateCustomLampPeaks() {
   return isValid;
 }
 
-function getReferenceLinesForLamp(lamp) {
+function getReferenceLinesForLamp(lamp, laserNm = getSelectedLaserNm()) {
   if (lamp === "Auto") return [];
   if (lamp === "Custom") {
     return parseCustomLampPeaks().map((absWavenumber) => ({
@@ -468,6 +473,18 @@ function getReferenceLinesForLamp(lamp) {
       absWavenumber,
       wavelengthNm: NaN,
     }));
+  }
+  if (lamp === "Sulfur") {
+    const laserAbs = laserAbsWavenumberFromNm(laserNm);
+    return SULFUR_RAMAN_SHIFTS_CM.map((ramanShift) => {
+      const absWavenumber = laserAbs - ramanShift;
+      return {
+        lamp: "Sulfur",
+        ramanShift,
+        absWavenumber,
+        wavelengthNm: absWavenumberToWavelengthNm(absWavenumber),
+      };
+    }).sort((a, b) => a.absWavenumber - b.absWavenumber);
   }
   return state.lampDb.filter((row) => row.lamp === lamp);
 }
@@ -618,8 +635,8 @@ async function runPeakDetection() {
       const calibrationRowsForFit = convertRowsToAbsInput(calibrationRows, inputAxisMode, laserNm);
       const xValues = calibrationRowsForFit.map((r) => r.x);
       const referenceLinesForProminence = selectedLamp === "Custom"
-        ? getReferenceLinesForLamp("Custom")
-        : getReferenceLinesForLamp(fileHintLamp || state.lampNames.find((name) => name.startsWith("Ne")) || "Ne");
+        ? getReferenceLinesForLamp("Custom", laserNm)
+        : getReferenceLinesForLamp(fileHintLamp || state.lampNames.find((name) => name.startsWith("Ne")) || "Ne", laserNm);
       const peakResult = detectPeaks(calibrationRowsForFit, {
         ...detectOptions,
         referenceLines: referenceLinesForProminence,
@@ -631,6 +648,7 @@ async function runPeakDetection() {
           degree,
           xMin: Math.min(...xValues),
           xMax: Math.max(...xValues),
+          laserNm,
           fileHintLamp,
         });
       const lamp = selectedLamp === "Custom"
@@ -768,7 +786,7 @@ function resolveCalibrationMatch(peakDetection) {
   const sourceFiles = [];
 
   for (const fileCalibration of peakDetection.fileCalibrations) {
-    const perFileLines = getReferenceLinesForLamp(fileCalibration.lamp);
+    const perFileLines = getReferenceLinesForLamp(fileCalibration.lamp, peakDetection.laserNm);
     const match = autoMatchPeaks({
       detectedPeaks: fileCalibration.peakResult.peaks,
       referenceLines: perFileLines,
